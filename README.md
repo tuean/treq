@@ -20,9 +20,10 @@
 - 方法（GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS）+ URL 预览（变量解析 + 参数拼接后的最终 URL）
 - Query / Headers / Body（JSON、文本、表单、multipart、二进制文件）/ 认证 / 内联 Docs 五个 tab，表格支持拖拽排序、批量增删
 - 认证：无 / Bearer（可自定义前缀）/ Basic / API Key（Header 或 Query），token 支持 `{{ 变量 }}`；**手写了同名头就以手写为准**
-- JSON body 编辑器：自动增高 + 语法高亮，**行高可调**（设置 → 样式，12–32px）；
-  这一个值同时管着 Query/Headers 表格、响应正文、响应头/Cookies/Timeline 与 Docs ——
-  所以「接口返回值的 JSON」和「请求体 JSON」永远一样密
+- JSON body 编辑器：自动增高 + 语法高亮，**行高可调**（设置 → 样式，12–32px）。
+  这一个值管的是 JSON/正文内容：请求体 JSON、Docs、响应正文、响应头与
+  Cookies/Timeline 列表——所以「接口返回值的 JSON」和「请求体 JSON」永远一样密；
+  Query/Headers 这类表格是固定高度的组件，不跟着变
 - 事件流（SSE）：逐段渲染，收到响应头后不限时，可开「到达时间」列；「停止」≤1 秒生效
 - `⌘Enter` 发送 / 停止
 
@@ -118,7 +119,7 @@ auth:
 
 | 内容 | 位置 |
 |---|---|
-| 设置（工作区列表、语言、下拉样式、行高、代理、超时、上次打开的请求） | `~/Library/Application Support/com.treq.app/settings.toml` |
+| 设置（工作区列表、语言、下拉样式、内容行高、代理、超时、上次打开的请求） | `~/Library/Application Support/com.treq.app/settings.toml` |
 | Cookie 罐 | 同上目录 `cookies.json` |
 | 发送历史（SQLite） | 同上目录 `history.db` |
 | 回收站 | 同上目录 `trash/` |

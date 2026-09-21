@@ -27,11 +27,7 @@ impl AppModel {
             }),
             cx,
         );
-        let lh = px(theme::line_h());
-        field.update(cx, |f, _cx| {
-            f.plain = true;
-            f.line_height = Some(lh);
-        });
+        field.update(cx, |f, _cx| f.plain = true);
         self.fields.kv.insert(key.to_string(), field.clone());
         field
     }
@@ -400,10 +396,10 @@ impl AppModel {
                             .flex()
                             .items_center()
                             .gap(theme::sp3())
-                            .h(theme::kv_row_h())
+                            .h(theme::control_h())
                             .child(div().flex_none().w(px(14.)))
                             .child(div().flex_1().min_w_0().child(underline(f)))
-                            .child(div().flex_none().size(theme::kv_row_h())),
+                            .child(div().flex_none().size(theme::control_h())),
                     )
                 });
             table = table.child(row);
@@ -446,7 +442,7 @@ impl AppModel {
                     div()
                         .id(SharedString::from(format!("fd-type/{}/{}", req_id, i)))
                         .flex_none()
-                        .h(theme::kv_row_h())
+                        .h(theme::control_h())
                         .flex()
                         .items_center()
                         .px(theme::sp2())
@@ -514,7 +510,7 @@ impl AppModel {
                     div()
                         .id(SharedString::from(format!("fd-add-btn/{}", req_id)))
                         .flex_none()
-                        .h(theme::kv_row_h())
+                        .h(theme::control_h())
                         .flex()
                         .items_center()
                         .px(theme::sp3())

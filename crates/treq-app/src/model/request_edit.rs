@@ -315,14 +315,12 @@ impl AppModel {
         }
         self.settings.editor_line_h = Some(v);
         settings::save(&self.settings).ok();
-        // 全局显示常量 + 已建好的输入框（正文/文档/键值表）都要跟着变
+        // 全局显示常量 + 已建好的正文/文档输入框跟着变（表格是组件，高度固定不动）
         crate::theme::set_line_h(v);
         let lh = px(v);
-        let kv: Vec<Entity<TextField>> = self.fields.kv.values().cloned().collect();
         for f in [self.fields.body.clone(), self.fields.docs.clone()]
             .into_iter()
             .flatten()
-            .chain(kv)
         {
             f.update(cx, |f, _| f.line_height = Some(lh));
         }

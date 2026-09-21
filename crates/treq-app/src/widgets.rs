@@ -1104,10 +1104,9 @@ impl Render for TextField {
                     })
             })
             .when(!self.multiline, |d| {
-                // 单行框：行高跟内容行高（多行正文/表格设的那个值）保持一致
                 d.h(theme::control_h())
                     .items_center()
-                    .line_height(self.line_height.unwrap_or_else(|| px(theme::input_line_h())))
+                    .line_height(px(theme::input_line_h()))
                     // 单行框：超出框的内容不画出去（长值会糊到邻居身上）
                     .overflow_hidden()
             })

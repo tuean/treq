@@ -215,10 +215,10 @@ pub fn tree_indent(depth: u8) -> Pixels {
 pub fn control_h() -> Pixels {
     px(26.)
 }
-/// 键值表（Query/Headers/表单）单行高度：跟正文行高同一个值（放得下 14px 勾选框），
-/// 所以「Query 表格」和「接口返回值的 JSON」看起来是一样密的。
+/// kv 行高（26 + sp1，两行之间留一条发丝缝）。表格是「组件」不是正文，
+/// 高度固定，不跟 [`line_h`]（那个只管 JSON/正文内容）
 pub fn kv_row_h() -> Pixels {
-    px(line_h().max(16.))
+    px(29.)
 }
 /// 列表行高（树/历史行：贴着控件高，不再单独留大行距）
 pub fn row_h() -> Pixels {
