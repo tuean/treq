@@ -1,0 +1,20 @@
+[package]
+name = "treq-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_yaml = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+anyhow = { workspace = true }
+reqwest = { workspace = true }
+rusqlite = { version = "0.40", default-features = false }
+libc = "0.2"
+base64 = "0.22"
+tokio = { version = "1", features = ["rt-multi-thread", "time", "net", "sync"] }
+
+[dev-dependencies]
+futures = "0.3"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time"] }
