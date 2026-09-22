@@ -2,6 +2,20 @@
 
 use super::*;
 
+/// 鼠标在窗口里的 y（拖拽阈值、落点判定都用它）。
+fn y_of(e: &MouseDownEvent) -> f32 {
+    f32::from(e.position.y)
+}
+
+/// 拖动结束时的 click 位移很大，别当成单击（否则刚拖完就被折叠/切选中）。
+fn is_drag_click(e: &ClickEvent) -> bool {
+    let ClickEvent::Mouse(m) = e else {
+        return false;
+    };
+    (f32::from(m.up.position.y) - f32::from(m.down.position.y)).abs() > 5.
+        || (f32::from(m.up.position.x) - f32::from(m.down.position.x)).abs() > 5.
+}
+
 impl AppModel {
     /// 把（过滤 + 折叠后的）树摊平成一行数组：只记录**位置**和行状态，
     /// 不复制名称/URL，所以 1400 行也就几十微秒、零堆分配。
@@ -92,6 +106,10 @@ impl AppModel {
         let Some((kind, id, label, method, owner)) = self.resolve_row(row.at) else {
             return div().into_any();
         };
+        // 拖拽中落在这一行「里面」→ 高亮整行（前后插入画的是插入线）
+        let drop_inside = self
+            .drop_indicator()
+            .is_some_and(|t| t.at == row.at && t.zone == crate::model::DropZone::Inside);
         let label = SharedString::from(label);
         let method = SharedString::from(method);
         if row.renaming
@@ -121,6 +139,7 @@ impl AppModel {
                 .gap(theme::sp2())
                 .cursor_pointer()
                 .text_size(px(theme::font_body()))
+                .when(drop_inside, |d| d.bg(theme::bg_hover()))
                 .when(row.selected, |d| d.bg(theme::bg_selected()))
                 .child(self.fold_arrow(RowKind::Collection, &id, row.collapsed, cx))
                 .child(
@@ -143,6 +162,18 @@ impl AppModel {
                     let click = id.clone();
                     cx.listener(move |this, _, _w, cx| this.toggle_collapsed(&click, cx))
                 })
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener({
+                        let press_id = id.clone();
+                        move |this: &mut AppModel,
+                              e: &MouseDownEvent,
+                              _w,
+                              _cx: &mut Context<AppModel>| {
+                            this.tree_press(RowKind::Collection, press_id.clone(), y_of(e));
+                        }
+                    }),
+                )
                 .on_mouse_down(
                     MouseButton::Right,
                     cx.listener({
@@ -168,6 +199,7 @@ impl AppModel {
                 .cursor_pointer()
                 .text_size(px(theme::font_body()))
                 .when(row.selected, |d| d.bg(theme::bg_selected()))
+                .when(drop_inside, |d| d.bg(theme::bg_hover()))
                 .child(self.fold_arrow(RowKind::Group, &id, row.collapsed, cx))
                 .child(
                     div()
@@ -186,8 +218,26 @@ impl AppModel {
                 ))
                 .on_click({
                     let click = id.clone();
-                    cx.listener(move |this, _, _w, cx| this.toggle_collapsed(&click, cx))
+                    cx.listener(move |this, e: &ClickEvent, _w, cx| {
+                        // 拖动结束时也会冒一个 click，位移大的忽略掉
+                        if is_drag_click(e) {
+                            return;
+                        }
+                        this.toggle_collapsed(&click, cx)
+                    })
                 })
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener({
+                        let press_id = id.clone();
+                        move |this: &mut AppModel,
+                              e: &MouseDownEvent,
+                              _w,
+                              _cx: &mut Context<AppModel>| {
+                            this.tree_press(RowKind::Group, press_id.clone(), y_of(e));
+                        }
+                    }),
+                )
                 .on_mouse_down(
                     MouseButton::Right,
                     cx.listener({
@@ -216,6 +266,7 @@ impl AppModel {
                     .gap(theme::sp3())
                     .cursor_pointer()
                     .text_size(px(theme::font_body()))
+                    .when(drop_inside, |d| d.bg(theme::bg_hover()))
                     .when(row.selected, |d| {
                         d.bg(theme::bg_selected()).child(
                             div()
@@ -257,10 +308,25 @@ impl AppModel {
                     ))
                     .on_click({
                         let click = id.clone();
-                        cx.listener(move |this, _, window, cx| {
+                        cx.listener(move |this, e: &ClickEvent, window, cx| {
+                            if is_drag_click(e) {
+                                return;
+                            }
                             this.select_request(click.clone(), window, cx);
                         })
                     })
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener({
+                            let press_id = id.clone();
+                            move |this: &mut AppModel,
+                                  e: &MouseDownEvent,
+                                  _w,
+                                  _cx: &mut Context<AppModel>| {
+                                this.tree_press(RowKind::Request, press_id.clone(), y_of(e));
+                            }
+                        }),
+                    )
                     .on_mouse_down(
                         MouseButton::Right,
                         cx.listener({

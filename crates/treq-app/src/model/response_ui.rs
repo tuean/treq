@@ -154,6 +154,38 @@ impl AppModel {
     }
 
     /// 拖动中：光标位置跟着走（只有真的变了才重画）。
+    /// 双击正文一行：选中这一行里 `"…"` 之间的内容（没有引号就退成一段词 / 整行）。
+    pub(crate) fn resp_double_click(&mut self, row: usize, cx: &mut Context<Self>) {
+        let Some(line) = self.resp_lines.get(row).cloned() else {
+            return;
+        };
+        let col = self.resp_hover_col.unwrap_or(0);
+        let range = crate::widgets::double_click_range(&line, col);
+        self.resp_sel = Some(crate::model::RespSel {
+            a_row: row,
+            a_col: range.start,
+            c_row: row,
+            c_col: range.end,
+        });
+        self.resp_sel_drag = false;
+        cx.notify();
+    }
+
+    /// 三击：整个正文全选。
+    pub(crate) fn resp_select_all(&mut self, cx: &mut Context<Self>) {
+        let Some(end) = self.resp_lines.last().map(|l| l.len()) else {
+            return;
+        };
+        self.resp_sel = Some(crate::model::RespSel {
+            a_row: 0,
+            a_col: 0,
+            c_row: self.resp_lines.len() - 1,
+            c_col: end,
+        });
+        self.resp_sel_drag = false;
+        cx.notify();
+    }
+
     pub(crate) fn resp_sel_drag_to(&mut self, row: usize, col: usize, cx: &mut Context<Self>) {
         self.resp_hover_col = Some(col);
         if !self.resp_sel_drag {

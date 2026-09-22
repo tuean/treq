@@ -18,6 +18,7 @@ use treq_core::{
 // 按主题拆出去的 impl 块（都是 `impl AppModel`，只是分文件放，见各自文件头注释）
 mod backup;
 mod codegen;
+pub mod tree_drag;
 mod completion;
 mod cookies_net;
 mod move_dialog;
@@ -204,6 +205,16 @@ pub enum SettingsTab {
     Backup,
 }
 
+/// 配置页「外观」里可调的四项字体设置。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FontField {
+    /// 界面字体家族（空 = 系统默认）
+    UiFamily,
+    UiSize,
+    MonoFamily,
+    MonoSize,
+}
+
 /// 把响应里的值存成环境变量。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VarSource {
@@ -254,7 +265,7 @@ pub enum QuickTarget {
 }
 
 /// 侧栏树的一行（扁平化后交给 uniform_list 虚拟滚动渲染）。
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RowKind {
     Collection,
     Group,
@@ -415,6 +426,67 @@ pub const MAX_BODY_BYTES: usize = 64 * 1024 * 1024;
 /// 流式界面刷新节流：最快 8 帧/秒，别让每来一块就重建行缓存
 const STREAM_FLUSH_MS: u64 = 120;
 
+/// 拖动侧栏节点时的落点位置。
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DropZone {
+    /// 插到这一行前面
+    Before,
+    /// 放进这一行里面（分组 / 集合）
+    Inside,
+    /// 插到这一行后面
+    After,
+}
+
+/// 当前落点（高亮指示用）。
+#[derive(Clone, Copy, Debug)]
+pub struct DropTarget {
+    pub at: RowRef,
+    pub zone: DropZone,
+    /// 目标行的屏幕矩形：指示线按它画
+    pub rect: Bounds<Pixels>,
+}
+
+/// 侧栏拖拽中的节点。
+#[derive(Clone, Debug)]
+pub(crate) struct TreeDrag {
+    pub kind: RowKind,
+    /// 请求 / 分组 id（重载后仍能定位）
+    pub id: String,
+    pub target: Option<DropTarget>,
+}
+
+/// 按下但还没开始拖的那一行。
+#[derive(Clone, Debug)]
+pub(crate) struct TreePress {
+    pub kind: RowKind,
+    pub id: String,
+    pub y: f32,
+}
+
+/// 正在拖的滚动条：目标 + 鼠标相对滑块的抓取点 + 轨道几何。
+struct BarDrag {
+    target: crate::widgets::BarTarget,
+    /// 滚动区矩形（算进度、换算行号用）
+    view: Bounds<Pixels>,
+    /// 鼠标相对滑块顶部的距离：抓住的那一点始终跟着指针
+    grab: f32,
+    track_top: f32,
+    track_h: f32,
+    thumb_h: f32,
+}
+
+/// `ScrollHandle` 没有「设到某个像素偏移」的接口，只能「滚到第 n 项顶部」。
+/// 树 / KV 表都是行高一致的 uniform_list，所以按行高换算过去是准的。
+fn scroll_handle_to_progress(h: &ScrollHandle, prog: f32) {
+    let max = f32::from(h.max_offset().height);
+    if max <= 0. {
+        return;
+    }
+    // 往下滚 offset.y 越来越负（gpui 约定），所以目标偏移直接取负值
+    let x = f32::from(h.offset().x);
+    h.set_offset(point(px(x), px(-prog * max)));
+}
+
 pub struct AppModel {
     pub settings: Settings,
     /// cookie 罐：响应里的 Set-Cookie 存这儿，之后同域请求自动带上
@@ -453,6 +525,8 @@ pub struct AppModel {
     pub sse_show_time: bool,
     /// 外观栏的「编辑器行高」输入框（只建一次，避免每帧重建丢焦点）
     pub editor_line_field: Option<Entity<TextField>>,
+    /// 字体设置的四个输入框（按 `FontField` 顺序）
+    pub font_fields: [Option<Entity<TextField>>; 4],
     /// 本帧活着的滚动区 id（根部按这些画常显竖滚动条；每帧开头清空）
     pub scroll_live: Vec<&'static str>,
     /// 变高列表（gpui::list）单独登记一根（它自带滚动条接口）
@@ -560,6 +634,11 @@ pub struct AppModel {
     pub(crate) resp_sel_drag: bool,
     /// 最近一次鼠标悬停在正文哪一列（行由那一行元素报上来）—— 按下时拿它当起点
     pub(crate) resp_hover_col: Option<usize>,
+    /// 正在拖的滚动条。挂在模型上：指针移出窄带后根部监听接着管，手势不会断。
+    bar_drag: Option<BarDrag>,
+    /// 侧栏按下的行 / 正在拖的节点 / 当前落点
+    tree_press: Option<TreePress>,
+    tree_drag: Option<TreeDrag>,
     /// 正文容器的焦点：点正文才拿焦点，⌘C 复制选中文本
     pub resp_focus: FocusHandle,
     /// 响应体的变高虚拟列表状态（只测量可见行）
@@ -706,6 +785,7 @@ impl AppModel {
             sse_lines: 0,
             sse_show_time,
             editor_line_field: None,
+            font_fields: Default::default(),
             scroll_live: Vec::new(),
             scroll_lists: Vec::new(),
             scroll_handles: std::collections::HashMap::new(),
@@ -784,6 +864,9 @@ impl AppModel {
             resp_sel: None,
             resp_sel_drag: false,
             resp_hover_col: None,
+            bar_drag: None,
+            tree_press: None,
+            tree_drag: None,
             resp_focus: cx.focus_handle(),
             resp_list_w: (0., 0.),
             tree_scroll: UniformListScrollHandle::new(),
@@ -792,6 +875,12 @@ impl AppModel {
         };
         // 内容行高是全应用共享的显示常量（正文/JSON/表格都读它）
         theme::set_line_h(settings::editor_line_h(&m.settings));
+        theme::set_fonts(
+            &settings::font_ui(&m.settings),
+            settings::font_ui_size(&m.settings),
+            &settings::font_mono(&m.settings),
+            settings::font_mono_size(&m.settings),
+        );
         m.reload();
         // 恢复上次打开的请求（找不到就退回第一个），右侧编辑器直接展示内容
         m.restore_last_request(cx);
@@ -1052,18 +1141,101 @@ impl AppModel {
         self.scroll_lists.push(state.clone());
     }
 
-    /// 所有滚动区的常显竖滚动条：延迟绘制 → 压在所有内容之上。
-    pub fn scrollbars_layer(&self) -> AnyElement {
+    /// 所有滚动区的常显竖滚动条：延迟绘制 → 压在所有内容之上（对话框/菜单用更高的
+    /// deferred 优先级压回来）。条本身可点可拖，事件回调需要模型，所以带上 `cx`。
+    pub fn scrollbars_layer(&self, cx: &mut Context<Self>) -> AnyElement {
         let mut layer = div().absolute().left(px(0.)).top(px(0.));
+        let weak = cx.weak_entity();
         for id in &self.scroll_live {
             if let Some(h) = self.scroll_handles.get(id) {
-                layer = layer.child(gpui::deferred(crate::widgets::VBar::from_scroll(h)));
+                layer = layer.child(gpui::deferred(crate::widgets::VBar::from_scroll(
+                    h,
+                    weak.clone(),
+                )));
             }
         }
         for s in &self.scroll_lists {
-            layer = layer.child(gpui::deferred(crate::widgets::VBar::from_list(s)));
+            layer = layer.child(gpui::deferred(crate::widgets::VBar::from_list(
+                s,
+                weak.clone(),
+            )));
         }
         layer.into_any()
+    }
+
+    /// 按在滚动条上：滑块上是抓住它，轨道上是先跳过去再抓（macOS 的手感）。
+    pub(crate) fn bar_drag_begin(
+        &mut self,
+        target: crate::widgets::BarTarget,
+        mouse_y: f32,
+        thumb: Bounds<Pixels>,
+        view: Bounds<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::widgets::{BAR_INSET, BarTarget};
+        if let BarTarget::List(s) = &target {
+            // 拖动时要按「固定内容总高」换算，先冻住（免得边拖边重算，滑块乱跳）
+            s.scrollbar_drag_started();
+        }
+        let thumb_top = f32::from(thumb.origin.y);
+        let thumb_h = f32::from(thumb.size.height);
+        let track_h = (f32::from(view.size.height) - 2. * BAR_INSET).max(1.);
+        self.bar_drag = Some(BarDrag {
+            target,
+            view,
+            grab: (mouse_y - thumb_top).clamp(0., thumb_h),
+            track_top: f32::from(view.origin.y) + BAR_INSET,
+            track_h,
+            thumb_h,
+        });
+        self.bar_drag_to(mouse_y, cx);
+    }
+
+    pub(crate) fn bar_drag_move(&mut self, mouse_y: f32, cx: &mut Context<Self>) {
+        if self.bar_drag.is_some() {
+            self.bar_drag_to(mouse_y, cx);
+        }
+    }
+
+    pub(crate) fn bar_drag_end(&mut self, cx: &mut Context<Self>) {
+        if let Some(d) = self.bar_drag.take() {
+            if let crate::widgets::BarTarget::List(s) = &d.target {
+                s.scrollbar_drag_ended();
+            }
+            cx.notify();
+        }
+    }
+
+    /// 把鼠标 y 换算成进度，再落到具体的滚动目标上。
+    fn bar_drag_to(&mut self, mouse_y: f32, cx: &mut Context<Self>) {
+        use crate::widgets::BarTarget;
+        let Some(d) = self.bar_drag.as_ref() else {
+            return;
+        };
+        let span = (d.track_h - d.thumb_h).max(1.);
+        let y = (mouse_y - d.grab - d.track_top).clamp(0., span);
+        let prog = y / span;
+        match &d.target {
+            BarTarget::List(s) => {
+                let top = s.logical_scroll_top();
+                let row_h = s
+                    .bounds_for_item(top.item_ix)
+                    .map(|b| f32::from(b.size.height))
+                    .unwrap_or(0.);
+                let ix = crate::widgets::list_item_for_progress(
+                    d.view,
+                    s.item_count(),
+                    row_h,
+                    prog,
+                );
+                s.scroll_to(gpui::ListOffset {
+                    item_ix: ix,
+                    offset_in_item: px(0.),
+                });
+            }
+            BarTarget::Scroll(h) => scroll_handle_to_progress(h, prog),
+        }
+        cx.notify();
     }
 
     pub fn set_locale(&mut self, l: Locale, cx: &mut Context<Self>) {
@@ -2346,6 +2518,8 @@ impl Render for AppModel {
         // 滚动条登记表按帧重建：只有本帧渲染到的滚动区才画条
         self.scroll_live.clear();
         self.scroll_lists.clear();
+        // 配了界面字体才覆盖（空 = 保持 gpui 的系统默认字体）
+        let ui_font = theme::ui_font();
         let mut root = div()
             .id("root")
             .size_full()
@@ -2353,6 +2527,7 @@ impl Render for AppModel {
             .flex()
             .flex_col()
             .relative()
+            .when_some(ui_font, |d, f| d.font(f))
             // 点击菜单外任意处关闭。打开菜单的控件会 stop_propagation，
             // 所以这里只负责「点到别处」的情况（否则菜单一打开就被这一枪关掉）。
             .on_mouse_down(
@@ -2371,6 +2546,19 @@ impl Render for AppModel {
                         this.popup.close();
                         cx.notify();
                     }
+                }),
+            )
+            // 拖着滚动条时指针可能跑出那条窄带，剩下的路在这里接着走；
+            // 侧栏拖拽也一样（拖到别的行上时那些行的 hover 会抢事件，只能靠根部兜底）
+            .on_mouse_move(cx.listener(|this, e: &MouseMoveEvent, _w, cx| {
+                this.bar_drag_move(f32::from(e.position.y), cx);
+                this.tree_drag_move(e.position, cx);
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _e, window, cx| {
+                    this.bar_drag_end(cx);
+                    this.tree_drag_end(window, cx);
                 }),
             )
             // Ctrl+K 面板键盘导航（Enter 提交见 TextField.on_submit）
@@ -2444,16 +2632,35 @@ impl Render for AppModel {
         if self.kv_zoom.is_some() {
             root = root.child(self.kv_zoom_render(cx));
         }
-        // 菜单最后画：对话框（如配置页的样式预览）上的菜单也在最上层
+        // 菜单最后画：对话框（如配置页的样式预览）上的菜单也在最上层。
+        // 滚动条是延迟绘制的，菜单/toast 也得延迟绘制并给更高优先级才压得住。
         if self.popup.open {
-            root = root.child(self.popup_render(window, cx));
+            root = root.child(gpui::deferred(self.popup_render(window, cx)).with_priority(20));
         }
         // toast 比菜单还后：复制/保存反馈不能被对话框遮住
         if let Some(msg) = self.flash.clone() {
-            root = root.child(self.toast_render(msg));
+            root = root.child(gpui::deferred(self.toast_render(msg)).with_priority(30));
+        }
+        // 拖动中的插入线：贴在目标行上/下边缘
+        if let Some(t) = self.drop_indicator()
+            && t.zone != DropZone::Inside
+        {
+            let y = match t.zone {
+                DropZone::Before => t.rect.origin.y,
+                _ => t.rect.origin.y + t.rect.size.height,
+            };
+            root = root.child(
+                div()
+                    .absolute()
+                    .left(t.rect.origin.x)
+                    .top(y - px(1.))
+                    .w(t.rect.size.width)
+                    .h(px(2.))
+                    .bg(theme::primary()),
+            );
         }
         // 滚动条画在最上层（延迟绘制，压在正文/菜单之上）
-        root = root.child(self.scrollbars_layer());
+        root = root.child(self.scrollbars_layer(cx));
         // 改名框刚出现：把键盘焦点放进去（新建后直接能打字）
         if let Some(state) = self.rename.as_mut()
             && state.focus
@@ -2566,6 +2773,7 @@ mod find_request_tests {
             description: String::new(),
             docs_open: true,
             auth: None,
+            order: None,
         }
     }
 
@@ -2580,6 +2788,7 @@ mod find_request_tests {
                     parent: None,
                     name: "g1".into(),
                     requests: vec![req("nested")],
+                    order: None,
                 }],
             }],
             base_env: Environment {

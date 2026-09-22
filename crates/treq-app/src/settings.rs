@@ -112,6 +112,47 @@ pub struct Settings {
     /// 下拉框样式（None/缺省 = outlined）
     #[serde(default)]
     pub dropdown_style: DropdownStyle,
+    /// 界面字体家族（空 = 系统默认字体）
+    #[serde(default)]
+    pub font_ui: Option<String>,
+    /// 界面字号（None = 默认 13）
+    #[serde(default)]
+    pub font_ui_size: Option<f32>,
+    /// 代码/JSON 字体家族（None = 默认 Menlo）
+    #[serde(default)]
+    pub font_mono: Option<String>,
+    /// 代码/JSON 字号（None = 默认 12）
+    #[serde(default)]
+    pub font_mono_size: Option<f32>,
+}
+
+/// 界面字号；夹在 10~20，字太大控件会挤爆固定行高。
+pub fn font_ui_size(settings: &Settings) -> f32 {
+    settings
+        .font_ui_size
+        .unwrap_or(crate::theme::DEFAULT_UI_SIZE)
+        .clamp(10.0, 20.0)
+}
+
+/// 代码/JSON 字号；夹在 9~24。
+pub fn font_mono_size(settings: &Settings) -> f32 {
+    settings
+        .font_mono_size
+        .unwrap_or(crate::theme::DEFAULT_MONO_SIZE)
+        .clamp(9.0, 24.0)
+}
+
+/// 界面字体家族（空格/空串 = 系统默认）。
+pub fn font_ui(settings: &Settings) -> String {
+    settings.font_ui.clone().unwrap_or_default().trim().to_string()
+}
+
+/// 代码字体家族（空 = Menlo）。
+pub fn font_mono(settings: &Settings) -> String {
+    match settings.font_mono.as_deref().map(str::trim) {
+        Some(s) if !s.is_empty() => s.to_string(),
+        _ => crate::theme::DEFAULT_MONO_FAMILY.to_string(),
+    }
 }
 
 /// 单请求超时（秒），None → 默认 30。
@@ -167,6 +208,10 @@ impl Default for Settings {
             backup_interval_min: None,
             backup_keep: None,
             editor_line_h: None,
+            font_ui: None,
+            font_ui_size: None,
+            font_mono: None,
+            font_mono_size: None,
             sse_show_time: None,
             proxy: None,
             timeout_sec: None,
@@ -309,6 +354,26 @@ mod tests {
         let back: Settings = toml::from_str(&toml).unwrap();
         assert_eq!(back.workspaces.len(), 2);
         assert_eq!(back.workspaces[1].name, "b");
+    }
+
+    #[test]
+    fn font_defaults_and_clamps() {
+        let mut s = Settings::default();
+        assert_eq!(font_ui_size(&s), 13.0);
+        assert_eq!(font_mono_size(&s), 12.0);
+        assert_eq!(font_ui(&s), "");
+        assert_eq!(font_mono(&s), "Menlo");
+        s.font_ui = Some("  ".into());
+        assert_eq!(font_ui(&s), "", "空白当系统默认");
+        s.font_mono = Some("".into());
+        assert_eq!(font_mono(&s), "Menlo", "空串回落默认等宽字体");
+        s.font_mono = Some("JetBrains Mono".into());
+        assert_eq!(font_mono(&s), "JetBrains Mono");
+        // 手改离谱值也不会把界面撑坏
+        s.font_ui_size = Some(40.0);
+        assert_eq!(font_ui_size(&s), 20.0);
+        s.font_mono_size = Some(2.0);
+        assert_eq!(font_mono_size(&s), 9.0);
     }
 
     #[test]

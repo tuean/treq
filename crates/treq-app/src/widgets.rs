@@ -8,13 +8,14 @@ use std::time::{Duration, Instant};
 
 use gpui::{
     AnyElement, App, AssetSource, Bounds, ClickEvent, ClipboardItem, Context, CursorStyle, Div,
-    Element, ElementId, ElementInputHandler, Entity, EntityInputHandler, FocusHandle, Focusable,
-    FontWeight, GlobalElementId, InspectorElementId, KeyBinding, LayoutId, ListState, MouseButton,
-    MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point, Rgba, ScrollHandle,
-    ShapedLine, SharedString, Stateful, Style, Svg, Task, TextRun, Transformation, UTF16Selection,
-    UnderlineStyle, Window, actions, div, fill, point, prelude::*, px, radians, relative, rgb,
-    rgba, size, svg,
+    DispatchPhase, Element, ElementId, ElementInputHandler, Entity, EntityInputHandler, FocusHandle,
+    Focusable, FontWeight, GlobalElementId, HitboxBehavior, InspectorElementId, KeyBinding, LayoutId,
+    ListState, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point,
+    Rgba, ScrollHandle, ShapedLine, SharedString, Stateful, Style, Svg, Task, TextRun,
+    Transformation, UTF16Selection, UnderlineStyle, WeakEntity, Window, actions, div, fill, point,
+    prelude::*, px, radians, relative, rgb, rgba, size, svg,
 };
+use std::rc::Rc;
 use unicode_segmentation::*;
 
 use crate::settings::DropdownStyle;
@@ -328,10 +329,21 @@ impl TextField {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // 双击全选：整段内容选中，敲字直接替换（长 URL / 参数值 / 改名框都省得拖选）
-        if event.click_count >= 2 {
+        // 三击全选：整段选中，敲字直接替换
+        if event.click_count >= 3 {
             self.is_selecting = false;
             self.selected_range = 0..self.content.len();
+            self.selection_reversed = false;
+            self.marked_range = None;
+            self.reset_cursor_blink(cx);
+            cx.notify();
+            return;
+        }
+        // 双击：选中双引号之间的字段内容（没有引号就退成一段词 / 整行），不拖选
+        if event.click_count == 2 {
+            let idx = self.index_for_mouse_position(event.position);
+            self.is_selecting = false;
+            self.selected_range = double_click_range(&self.content, idx);
             self.selection_reversed = false;
             self.marked_range = None;
             self.reset_cursor_blink(cx);
@@ -1836,17 +1848,21 @@ pub fn modal<T: IntoElement, F: IntoElement>(spec: ModalSpec<T, F>) -> AnyElemen
         .into_any()
 }
 
-/// 全屏遮罩层（Modal 背景）。
+/// 全屏遮罩层（Modal 背景）。延迟绘制并抬高优先级：滚动条是延迟绘制的，
+/// 不这样做的话对话框会被别人的滚动条压在底下（配置页上见过）。
 pub fn backdrop(child: impl IntoElement) -> AnyElement {
-    div()
+    gpui::deferred(
+        div()
         .absolute()
         .size_full()
         .bg(theme::bg_backdrop())
         .flex()
         .items_center()
         .justify_center()
-        .child(child)
-        .into_any()
+        .child(child),
+    )
+    .with_priority(10)
+    .into_any()
 }
 
 // ---- 常显竖滚动条 -----------------------------------------------------------
@@ -1854,8 +1870,8 @@ pub fn backdrop(child: impl IntoElement) -> AnyElement {
 // 所以这里自己画一根：延迟绘制（压在所有内容之上），prepaint 阶段读滚动状态
 // （此时本帧布局已完成，位置与内容同帧，不会晚一帧）。
 
-const BAR_W: f32 = 7.;
-const BAR_INSET: f32 = 3.;
+pub(crate) const BAR_W: f32 = 7.;
+pub(crate) const BAR_INSET: f32 = 3.;
 const BAR_MIN: f32 = 22.;
 
 /// 滑块矩形：视口矩形 + 可滚距离 + 当前偏移（gpui 里往下滚是负值）。
@@ -1906,6 +1922,21 @@ pub fn list_thumb_rect_from(
     Some(Bounds::new(point(px(x), px(y)), size(px(BAR_W), px(thumb))))
 }
 
+/// 变高列表：滑块进度 → 顶部行号。跟 `list_thumb_rect_from` 用同一套算法，
+/// 不然拖起来滑块会跟鼠标各走各的。
+pub fn list_item_for_progress(
+    view: Bounds<Pixels>,
+    count: usize,
+    row_h: f32,
+    prog: f32,
+) -> usize {
+    let vh = f32::from(view.size.height);
+    let row_h = if row_h > 1. { row_h } else { 20. };
+    let vis = (vh / row_h).max(1.);
+    let span = (count as f32 - vis).max(1.);
+    (prog * span).round().clamp(0., (count as f32 - 1.).max(0.)) as usize
+}
+
 /// 变高列表（`gpui::list`）当前状态的滑块。
 pub fn list_thumb_rect(s: &ListState) -> Option<Bounds<Pixels>> {
     let top = s.logical_scroll_top();
@@ -1922,38 +1953,71 @@ pub fn list_thumb_rect(s: &ListState) -> Option<Bounds<Pixels>> {
     )
 }
 
+/// 滑块条要滚的是谁。
+#[derive(Clone)]
+pub enum BarTarget {
+    /// 普通滚动容器 / uniform_list 的 base_handle（行高一致 → 拖起来是准的）
+    Scroll(ScrollHandle),
+    /// 变高列表（gpui::list 的 ListState）
+    List(ListState),
+}
+
+/// 条上能点的范围：滚动区右侧那条窄带（含 2px 余量，好抓一点）。
+pub fn bar_strip(view: Bounds<Pixels>) -> Bounds<Pixels> {
+    let x = f32::from(view.origin.x) + f32::from(view.size.width) - BAR_INSET - BAR_W - 2.;
+    Bounds::new(
+        point(px(x), view.origin.y),
+        size(px(BAR_W + 4.), view.size.height),
+    )
+}
+
 /// 常显竖滚动条元素（配合 `gpui::deferred(...)` 放在根部统一画）。
+/// 除了画滑块，它还负责「点轨道跳过去、抓住滑块拖」——
+/// 指针拖出这条窄带时由根部的 on_mouse_move 接着管。
 pub struct VBar {
-    get: Box<dyn Fn() -> Option<Bounds<Pixels>>>,
+    get: Rc<dyn Fn() -> Option<Bounds<Pixels>>>,
+    view: Rc<dyn Fn() -> Option<Bounds<Pixels>>>,
+    target: BarTarget,
+    model: WeakEntity<crate::model::AppModel>,
 }
 
 impl VBar {
     /// 普通滚动容器（`track_scroll` 的句柄 / uniform_list 的 base_handle）。
-    pub fn from_scroll(handle: &ScrollHandle) -> Self {
+    pub fn from_scroll(handle: &ScrollHandle, model: WeakEntity<crate::model::AppModel>) -> Self {
         let h = handle.clone();
+        let v = handle.clone();
         Self {
-            get: Box::new(move || {
+            get: Rc::new(move || {
                 scroll_thumb_rect(
                     h.bounds(),
                     f32::from(h.max_offset().height),
                     f32::from(h.offset().y),
                 )
             }),
+            view: Rc::new(move || Some(v.bounds())),
+            target: BarTarget::Scroll(handle.clone()),
+            model,
         }
     }
 
     /// 变高列表（gpui::list 的 ListState）。
-    pub fn from_list(state: &ListState) -> Self {
+    pub fn from_list(state: &ListState, model: WeakEntity<crate::model::AppModel>) -> Self {
         let s = state.clone();
+        let v = state.clone();
         Self {
-            get: Box::new(move || list_thumb_rect(&s)),
+            get: Rc::new(move || list_thumb_rect(&s)),
+            view: Rc::new(move || Some(v.viewport_bounds())),
+            target: BarTarget::List(state.clone()),
+            model,
         }
     }
 }
 
 impl Element for VBar {
     type RequestLayoutState = ();
-    type PrepaintState = Option<Bounds<Pixels>>;
+    /// prepaint 算出滑块矩形 + 登记 hitbox；paint 里再把鼠标监听挂上
+    /// （gpui 规定：insert_hitbox 只能在 prepaint、on_mouse_event 只能在 paint）
+    type PrepaintState = Option<(Bounds<Pixels>, gpui::Hitbox)>;
 
     fn id(&self) -> Option<ElementId> {
         None
@@ -1983,10 +2047,16 @@ impl Element for VBar {
         _inspector_id: Option<&InspectorElementId>,
         _bounds: Bounds<Pixels>,
         _request_layout: &mut Self::RequestLayoutState,
-        _window: &mut Window,
-        _cx: &mut App,
-    ) -> Option<Bounds<Pixels>> {
-        (self.get)()
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Option<(Bounds<Pixels>, gpui::Hitbox)> {
+        let thumb = (self.get)()?;
+        // 整条窄带都可点：按在滑块上＝抓住它，按在轨道上＝先跳过去再抓。
+        // BlockMouseExceptScroll：不让点击穿到下面的内容，但滚轮照旧归滚动容器。
+        let view = (self.view)()?;
+        let hitbox = window.insert_hitbox(bar_strip(view), HitboxBehavior::BlockMouseExceptScroll);
+        let _ = cx;
+        Some((thumb, hitbox))
     }
 
     fn paint(
@@ -1995,13 +2065,49 @@ impl Element for VBar {
         _inspector_id: Option<&InspectorElementId>,
         _bounds: Bounds<Pixels>,
         _request_layout: &mut Self::RequestLayoutState,
-        thumb: &mut Option<Bounds<Pixels>>,
+        thumb: &mut Option<(Bounds<Pixels>, gpui::Hitbox)>,
         window: &mut Window,
         _cx: &mut App,
     ) {
-        if let Some(rect) = thumb.take() {
-            window.paint_quad(fill(rect, theme::scroll_thumb()).corner_radii(px(BAR_W / 2.)));
-        }
+        let Some((rect, hitbox)) = thumb.take() else {
+            return;
+        };
+        window.paint_quad(fill(rect, theme::scroll_thumb()).corner_radii(px(BAR_W / 2.)));
+
+        let (get, view_fn) = (self.get.clone(), self.view.clone());
+        let (target, weak) = (self.target.clone(), self.model.clone());
+        let (hb_down, hb_move, hb_up) = (hitbox.clone(), hitbox.clone(), hitbox);
+        window.on_mouse_event(move |e: &MouseDownEvent, phase, window, cx| {
+            if phase != DispatchPhase::Bubble || !hb_down.is_hovered(window) {
+                return;
+            }
+            let (Some(thumb), Some(view)) = (get(), view_fn()) else {
+                return;
+            };
+            weak.update(cx, |m: &mut crate::model::AppModel, cx| {
+                m.bar_drag_begin(target.clone(), f32::from(e.position.y), thumb, view, cx);
+            })
+            .ok();
+        });
+        // 拖到条外时根本地的监听接着管；这里只管指针还在条上的那一段
+        let weak = self.model.clone();
+        window.on_mouse_event(move |e: &MouseMoveEvent, phase, window, cx| {
+            if phase != DispatchPhase::Bubble || !hb_move.is_hovered(window) {
+                return;
+            }
+            weak.update(cx, |m: &mut crate::model::AppModel, cx| {
+                m.bar_drag_move(f32::from(e.position.y), cx);
+            })
+            .ok();
+        });
+        let weak = self.model.clone();
+        window.on_mouse_event(move |_: &MouseUpEvent, phase, window, cx| {
+            if phase != DispatchPhase::Bubble || !hb_up.is_hovered(window) {
+                return;
+            }
+            weak.update(cx, |m: &mut crate::model::AppModel, cx| m.bar_drag_end(cx))
+                .ok();
+        });
     }
 }
 
@@ -2010,6 +2116,156 @@ impl IntoElement for VBar {
 
     fn into_element(self) -> Self::Element {
         self
+    }
+}
+
+// ---------- 双击选什么 ----------
+
+/// 双击落在光标处该选中什么：优先 `"…"` 之间的内容（JSON 字段值最常用），
+/// 退而求其次选整段非空白 token，再不行选整行。
+/// 传字节下标（`selected_range` 就是字节），返回字节区间，保证不切在字的中间。
+pub fn double_click_range(content: &str, idx: usize) -> std::ops::Range<usize> {
+    let mut i = idx.min(content.len());
+    while i > 0 && !content.is_char_boundary(i) {
+        i -= 1;
+    }
+    if let Some(r) = quoted_range_at(content, i) {
+        return r;
+    }
+    if let Some(r) = token_range_at(content, i) {
+        return r;
+    }
+    line_range_at(content, i)
+}
+
+/// 没被反斜杠转义的 `"` 的位置（在屏幕上看到的样子为准，所以 `\"` 不算）。
+fn unescaped_quotes(content: &str) -> Vec<usize> {
+    let b = content.as_bytes();
+    let mut out = Vec::new();
+    for k in 0..b.len() {
+        if b[k] != b'"' {
+            continue;
+        }
+        let mut backslashes = 0;
+        let mut j = k;
+        while j > 0 && b[j - 1] == b'\\' {
+            backslashes += 1;
+            j -= 1;
+        }
+        if backslashes % 2 == 0 {
+            out.push(k);
+        }
+    }
+    out
+}
+
+/// 光标在某个字符串里 → 那个字符串的内容（不含引号）。
+fn quoted_range_at(content: &str, i: usize) -> Option<std::ops::Range<usize>> {
+    let q = unescaped_quotes(content);
+    // 正好点在引号上：右引号＝选这条字符串，左引号＝当作落在内容里
+    if let Some(k) = q.iter().position(|&p| p == i) {
+        return if k % 2 == 1 {
+            Some(q[k - 1] + 1..i)
+        } else {
+            q.get(k + 1).map(|&r| i + 1..r)
+        };
+    }
+    // 前面有奇数个引号＝两边这引号是一对，光标夹在中间
+    if q.iter().filter(|&&p| p < i).count() % 2 == 1 {
+        let left = *q.iter().rev().find(|&&p| p < i)?;
+        let right = *q.iter().find(|&&p| p >= i)?;
+        return Some(left + 1..right);
+    }
+    None
+}
+
+/// 连着的一段「词」：字母数字加上 URL/JSON 里常见的连接符。
+fn token_range_at(content: &str, i: usize) -> Option<std::ops::Range<usize>> {
+    let is_word = |c: char| c.is_alphanumeric() || "_-./:@%+~#?&=$".contains(c);
+    // 光标自己得落在词里；否则点在空白/标点上会顺着左边的词扩出去
+    if !content[i..].chars().next().is_some_and(is_word) {
+        return None;
+    }
+    // 从光标往外扩，只接「紧挨着」的字符
+    let mut start = i;
+    for (k, c) in content[..i].char_indices().rev() {
+        if is_word(c) && start == k + c.len_utf8() {
+            start = k;
+        } else {
+            break;
+        }
+    }
+    let mut end = i;
+    for (k, c) in content[i..].char_indices() {
+        if is_word(c) && end == i + k {
+            end = i + k + c.len_utf8();
+        } else {
+            break;
+        }
+    }
+    (start < end).then_some(start..end)
+}
+
+fn line_range_at(content: &str, i: usize) -> std::ops::Range<usize> {
+    let start = content[..i].rfind('\n').map(|p| p + 1).unwrap_or(0);
+    let end = content[i..].find('\n').map(|p| i + p).unwrap_or(content.len());
+    start..end
+}
+
+#[cfg(test)]
+mod double_click_tests {
+    use super::double_click_range as r;
+
+    #[test]
+    fn picks_quoted_field_value() {
+        let line = r#"{"name": "创建订单", "id": 12}"#;
+        let at = line.find('创').unwrap() + 1;
+        assert_eq!(&line[r(line, at)], "创建订单");
+        let at = line.find("12").unwrap() + 1;
+        assert_eq!(&line[r(line, at)], "12");
+    }
+
+    #[test]
+    fn clicks_on_the_quotes_themselves() {
+        let line = r#"{"k": "abc"}"#;
+        let open = line.find('"').unwrap();
+        let close = line.rfind('"').unwrap();
+        assert_eq!(&line[r(line, open)], "k", "点在左引号上＝选这条字符串的内容");
+        assert_eq!(&line[r(line, close)], "abc", "点在右引号上＝选这条字符串的内容");
+        let mid = line.find("abc").unwrap() + 1;
+        assert_eq!(&line[r(line, mid)], "abc");
+    }
+
+    #[test]
+    fn ignores_escaped_and_unpaired_quotes() {
+        // 值里带转义引号：双击仍然整条选中，不会被 \" 截断
+        let line = r#"{"path": "a\"b", "n": 1}"#;
+        let at = line.find(r#"a\"#).unwrap() + 1;
+        assert_eq!(&line[r(line, at)], r#"a\"b"#);
+        // 冒号夹在两条字符串之间，别把中间当一条字符串
+        let line2 = r#"{"k":"v"}"#;
+        let colon = line2.find(':').unwrap();
+        assert_eq!(&line2[r(line2, colon)], ":");
+    }
+
+    #[test]
+    fn falls_back_to_token_then_line() {
+        let line = "GET https://api.example.com/v1/orders?a=1 200";
+        let at = line.find("orders").unwrap();
+        assert_eq!(&line[r(line, at)], "https://api.example.com/v1/orders?a=1");
+        let at = line.find("200").unwrap();
+        assert_eq!(&line[r(line, at)], "200");
+        let at = line.find(" 200").unwrap();
+        assert_eq!(&line[r(line, at)], line, "空白处退成整行");
+    }
+
+    #[test]
+    fn stays_on_char_boundaries() {
+        let line = r#"{"中文键": "值"}"#;
+        let byte = line.find('值').unwrap() + 1; // 故意切在「值」中间
+        let got = r(line, byte);
+        assert!(line.is_char_boundary(got.start) && line.is_char_boundary(got.end));
+        assert_eq!(&line[got], "值");
     }
 }
 

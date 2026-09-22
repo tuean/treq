@@ -25,6 +25,7 @@ fn entry(method: &str, url: &str) -> HistoryEntry {
             description: String::new(),
             docs_open: true,
             auth: None,
+            order: None,
         },
     }
 }

@@ -486,6 +486,7 @@ mod tests {
             description: String::new(),
             docs_open: true,
             auth: None,
+            order: None,
         }
     }
 
@@ -501,6 +502,7 @@ mod tests {
                     parent: None,
                     name: (*g).to_string(),
                     requests: vec![req(&format!("{g}-r"))],
+                    order: None,
                 })
                 .collect(),
         }
@@ -519,6 +521,7 @@ mod tests {
                     parent: p.map(|p| p.to_string()),
                     name: (*g).to_string(),
                     requests: vec![req(&format!("{g}-r"))],
+                    order: None,
                 })
                 .collect(),
         }
@@ -554,18 +557,21 @@ mod tests {
                 parent: None,
                 name: "a".into(),
                 requests: vec![],
+                order: None,
             },
             treq_core::Group {
                 id: "b".into(),
                 parent: Some("a".into()),
                 name: "b".into(),
                 requests: vec![],
+                order: None,
             },
             treq_core::Group {
                 id: "c".into(),
                 parent: Some("b".into()),
                 name: "c".into(),
                 requests: vec![],
+                order: None,
             },
             // 悬空 parent 与自引用：都当第一层
             treq_core::Group {
@@ -573,12 +579,14 @@ mod tests {
                 parent: Some("nope".into()),
                 name: "ghost".into(),
                 requests: vec![],
+                order: None,
             },
             treq_core::Group {
                 id: "self".into(),
                 parent: Some("self".into()),
                 name: "self".into(),
                 requests: vec![],
+                order: None,
             },
         ];
         let order: Vec<(String, u8)> = group_tree(&groups)
@@ -601,12 +609,14 @@ mod tests {
             parent: Some("y".into()),
             name: "x".into(),
             requests: vec![],
+            order: None,
         });
         groups.push(treq_core::Group {
             id: "y".into(),
             parent: Some("x".into()),
             name: "y".into(),
             requests: vec![],
+            order: None,
         });
         assert_eq!(group_tree(&groups).len(), groups.len());
     }
@@ -1029,6 +1039,7 @@ mod tests {
             description: String::new(),
             docs_open: true,
             auth: None,
+            order: None,
         };
         vec![
             Collection {
@@ -1040,12 +1051,14 @@ mod tests {
                         parent: None,
                         name: "客户".into(),
                         requests: vec![req("r1", "客户详情")],
+                        order: None,
                     },
                     treq_core::Group {
                         id: "g2".into(),
                         parent: None,
                         name: "消息".into(),
                         requests: vec![req("r2", "发消息")],
+                        order: None,
                     },
                 ],
                 requests: vec![req("r3", "顶层接口")],

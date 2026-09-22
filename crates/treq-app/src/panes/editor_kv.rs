@@ -674,7 +674,7 @@ impl AppModel {
                                 .flex()
                                 .items_start()
                                 .gap(theme::sp3())
-                                .text_size(px(theme::font_small() + 1.))
+                                .text_size(px(theme::mono_size()))
                                 .line_height(px(theme::line_h()))
                                 .font(theme::mono())
                                 .child(
@@ -737,7 +737,7 @@ impl AppModel {
                                         .flex()
                                         .gap(theme::sp3())
                                         .font(theme::mono())
-                                        .text_size(px(theme::font_small() + 1.))
+                                        .text_size(px(theme::mono_size()))
                                         .child(
                                             div()
                                                 .flex_none()
@@ -799,7 +799,7 @@ impl AppModel {
                                     )
                                     .child(
                                         div()
-                                            .text_size(px(theme::font_small() + 1.))
+                                            .text_size(px(theme::mono_size()))
                                             .text_color(theme::fg_normal())
                                             .child(SharedString::from(fmt_duration_ms(ms))),
                                     ),
@@ -808,7 +808,7 @@ impl AppModel {
                                 div()
                                     .flex()
                                     .gap(theme::sp4())
-                                    .text_size(px(theme::font_small() + 1.))
+                                    .text_size(px(theme::mono_size()))
                                     .text_color(theme::fg_dim())
                                     .child(SharedString::from(format!(
                                         "{} {}",
@@ -832,7 +832,7 @@ impl AppModel {
                             // 归因：一句人话在前，原始英文链折在下面
                             let mut block = div().flex().flex_col().gap(theme::sp1()).child(
                                 div()
-                                    .text_size(px(theme::font_small() + 1.))
+                                    .text_size(px(theme::mono_size()))
                                     .text_color(theme::red())
                                     .child(SharedString::from(err.to_string())),
                             );

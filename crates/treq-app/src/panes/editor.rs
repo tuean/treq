@@ -389,7 +389,7 @@ impl AppModel {
                             .flex_1()
                             .min_w_0()
                             .font(theme::mono())
-                            .text_size(px(theme::font_small() + 1.))
+                            .text_size(px(theme::mono_size()))
                             .line_height(px(theme::line_h()))
                             .text_color(theme::fg_dim())
                             .child(SharedString::from(content)),

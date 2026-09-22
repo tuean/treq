@@ -326,6 +326,7 @@ pub fn insomnium_request(rec: &Value) -> RequestItem {
         docs_open: true,
         // Insomnia 的 authentication 上面已经折成 Authorization / apikey 头了
         auth: None,
+        order: None,
     }
 }
 
@@ -542,6 +543,7 @@ pub fn yaak_request(row: &YaakRow) -> RequestItem {
         description: description.to_string(),
         docs_open: true,
         auth: None,
+        order: None,
     }
 }
 

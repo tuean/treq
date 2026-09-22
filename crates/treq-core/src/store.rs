@@ -21,6 +21,11 @@ fn read_requests(dir: &Path) -> Result<Vec<(PathBuf, RequestItem)>> {
             }
         }
     }
+    reqs.sort_by(|a, b| {
+        crate::models::sort_key(a.1.order, &a.1.name)
+            .partial_cmp(&crate::models::sort_key(b.1.order, &b.1.name))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     Ok(reqs)
 }
 
@@ -122,6 +127,11 @@ impl WorkspaceStore {
             } else {
                 Vec::new()
             };
+            col.groups.sort_by(|a, b| {
+                crate::models::sort_key(a.order, &a.name)
+                    .partial_cmp(&crate::models::sort_key(b.order, &b.name))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
             // 悬空/自引用的 parent（手改 yml、回收站还原了子分组）当第一层，
             // 否则这些分组在树里永远看不见。
             let ids: std::collections::HashSet<String> =
@@ -207,6 +217,7 @@ impl WorkspaceStore {
             description: String::new(),
             docs_open: true,
             auth: None,
+            order: None,
         };
         let path = dir.join(format!("{}.yml", req.id));
         fs::write(&path, serde_yaml::to_string(&req)?)?;
@@ -230,6 +241,7 @@ impl WorkspaceStore {
             name: name.to_string(),
             parent,
             requests: Vec::new(),
+            order: None,
         };
         fs::write(dir.join("group.yml"), serde_yaml::to_string(&group)?)?;
         Ok(group)
@@ -258,6 +270,68 @@ impl WorkspaceStore {
         // 会同时留下「集合根一份 + 分组里一份」，编辑等于复制（历史 bug）。
         let f = self.find_request_file(&req.id)?;
         fs::write(f, serde_yaml::to_string(req)?)?;
+        Ok(())
+    }
+
+    /// 按给定显示顺序重排一批请求（1.0、2.0、…）。传进来的 id 要属于同一个容器 ——
+    /// 新请求默认在最上面、复制出来的紧跟在源请求下面，靠的就是把次序写进文件的 `order`。
+    pub fn set_request_orders(&self, ordered: &[String]) -> Result<()> {
+        for (i, id) in ordered.iter().enumerate() {
+            let f = self.find_request_file(id)?;
+            let mut req: RequestItem = serde_yaml::from_str(&fs::read_to_string(&f)?)?;
+            req.order = Some((i + 1) as f64);
+            fs::write(&f, serde_yaml::to_string(&req)?)?;
+        }
+        Ok(())
+    }
+
+    /// 反查分组目录（盘上平铺，得扫一遍 collections/*/groups/<gid>）。
+    pub fn find_group_dir(&self, group_id: &str) -> Result<PathBuf> {
+        for entry in fs::read_dir(self.root.join("collections"))? {
+            let dir = entry?.path().join("groups").join(group_id);
+            if dir.join("group.yml").is_file() {
+                return Ok(dir);
+            }
+        }
+        Err(anyhow!("找不到分组目录：{group_id}"))
+    }
+
+    /// 分组换父级 / 换集合：整目录搬过去，层级写回 group.yml 的 `parent`。
+    pub fn set_group_parent(
+        &self,
+        group_id: &str,
+        to_collection: &str,
+        parent: Option<&str>,
+    ) -> Result<()> {
+        let from = self.find_group_dir(group_id)?;
+        let to = self
+            .root
+            .join(format!("collections/{}/groups/{}", to_collection, group_id));
+        if from != to {
+            if let Some(p) = to.parent() {
+                fs::create_dir_all(p)?;
+            }
+            fs::rename(&from, &to)?;
+        }
+        let meta = to.join("group.yml");
+        let mut g: Group = serde_yaml::from_str(&fs::read_to_string(&meta)?)?;
+        g.parent = parent.map(str::to_string);
+        fs::write(&meta, serde_yaml::to_string(&g)?)?;
+        // 目录换了，组内请求的索引得跟着修，不然保存还会写回旧路径
+        for (p, r) in read_requests(&to.join("requests"))? {
+            self.index().insert(r.id, p);
+        }
+        Ok(())
+    }
+
+    /// 写一组同层分组的显示顺序（1.0、2.0、…），同 `set_request_orders`。
+    pub fn set_group_orders(&self, ordered: &[String]) -> Result<()> {
+        for (i, id) in ordered.iter().enumerate() {
+            let meta = self.find_group_dir(id)?.join("group.yml");
+            let mut g: Group = serde_yaml::from_str(&fs::read_to_string(&meta)?)?;
+            g.order = Some((i + 1) as f64);
+            fs::write(&meta, serde_yaml::to_string(&g)?)?;
+        }
         Ok(())
     }
 

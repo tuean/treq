@@ -311,7 +311,7 @@ fn json_line(
         .flex()
         .w_full()
         .items_start()
-        .text_size(px(theme::font_small() + 1.))
+        .text_size(px(theme::mono_size()))
         .line_height(px(theme::line_h()))
         .font(theme::mono())
         .when(time.is_some(), |d| d.child(time_cell(time)))
@@ -383,7 +383,7 @@ pub(crate) fn history_row(
         .gap(theme::sp3())
         .px(theme::sp4())
         .cursor_pointer()
-        .text_size(px(theme::font_small() + 1.))
+        .text_size(px(theme::mono_size()))
         .hover(|d| d.bg(theme::bg_hover()))
         .child(
             div()

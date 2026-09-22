@@ -158,17 +158,66 @@ pub fn method_color(method: &str) -> Rgba {
 }
 
 // ---- 排版 ----
+// 字体家族/字号由配置页驱动（settings 的 font_* 字段），改完立即生效：
+// `font_body` / `mono_size` 是「当前值」，`set_fonts()` 负责写进来。
+/// 代码字体家族默认值
+pub const DEFAULT_MONO_FAMILY: &str = "Menlo";
+pub const DEFAULT_UI_SIZE: f32 = 13.;
+pub const DEFAULT_MONO_SIZE: f32 = 12.;
+
+static UI_FAMILY: std::sync::LazyLock<std::sync::Mutex<String>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(String::new()));
+static MONO_FAMILY: std::sync::LazyLock<std::sync::Mutex<String>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(DEFAULT_MONO_FAMILY.to_string()));
+/// 字号存成 ×100 的整数（原子量只有整数）
+static UI_SIZE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1300);
+static MONO_SIZE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1200);
+
+fn read_size(v: &std::sync::atomic::AtomicU32) -> f32 {
+    v.load(std::sync::atomic::Ordering::Relaxed) as f32 / 100.
+}
+
+fn store_size(v: &std::sync::atomic::AtomicU32, size: f32) {
+    let clamped = size.clamp(6., 48.);
+    v.store((clamped * 100.).round() as u32, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// 换字体设置（`AppModel` 启动时与配置页改动时调用）。
+pub fn set_fonts(ui_family: &str, ui_size: f32, mono_family: &str, mono_size: f32) {
+    let mut fam = UI_FAMILY.lock().unwrap();
+    if *fam != ui_family {
+        *fam = ui_family.to_string();
+    }
+    drop(fam);
+    let mut fam = MONO_FAMILY.lock().unwrap();
+    if *fam != mono_family {
+        *fam = mono_family.to_string();
+    }
+    store_size(&UI_SIZE, ui_size);
+    store_size(&MONO_SIZE, mono_size);
+}
+
+/// 界面字体。没配就返回 None（＝保持 gpui 的系统默认字体，别去改默认观感）
+pub fn ui_font() -> Option<Font> {
+    let fam = UI_FAMILY.lock().unwrap().clone();
+    (!fam.trim().is_empty()).then(|| font(fam))
+}
+
 /// 正文/控件字号（Insomnia 默认 13px 的密排 UI）
 pub fn font_body() -> f32 {
-    13.0
+    read_size(&UI_SIZE)
 }
-/// 次级/元信息字号
+/// 次级/元信息字号（比正文小 2px）
 pub fn font_small() -> f32 {
-    11.0
+    (font_body() - 2.).max(6.)
 }
 /// 等宽字体（JSON / 代码）
 pub fn mono() -> Font {
-    font("Menlo")
+    font(MONO_FAMILY.lock().unwrap().clone())
+}
+/// JSON / 代码的字号
+pub fn mono_size() -> f32 {
+    read_size(&MONO_SIZE)
 }
 
 // ---- 间距（黄金比例级联）----

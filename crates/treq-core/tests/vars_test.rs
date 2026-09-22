@@ -75,6 +75,7 @@ fn resolve_request_fields() {
         description: String::new(),
         docs_open: true,
         auth: None,
+        order: None,
     };
     let v = vars(&[("baseUrl", "http://h"), ("userId", "7"), ("key", "v")]);
     let r = resolve_request(&req, &v);

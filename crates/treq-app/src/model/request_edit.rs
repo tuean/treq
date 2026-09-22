@@ -281,6 +281,92 @@ impl AppModel {
         field
     }
 
+    /// 配置页的字体输入框（界面/代码 × 家族/字号）。家族接受任意字体名，
+    /// 空 = 系统默认；字号非法输入忽略，合法值夹到范围内立刻生效。
+    pub(crate) fn font_field(
+        &mut self,
+        which: crate::model::FontField,
+        cx: &mut Context<Self>,
+    ) -> Entity<TextField> {
+        use crate::model::FontField;
+        let ix = which as usize;
+        if let Some(f) = self.font_fields.get(ix).and_then(|f| f.clone()) {
+            return f;
+        }
+        let cur = match which {
+            FontField::UiFamily => crate::settings::font_ui(&self.settings),
+            FontField::UiSize => format!("{}", crate::settings::font_ui_size(&self.settings)),
+            FontField::MonoFamily => crate::settings::font_mono(&self.settings),
+            FontField::MonoSize => format!("{}", crate::settings::font_mono_size(&self.settings)),
+        };
+        let placeholder = match which {
+            FontField::UiFamily => self.t("settings.font.system"),
+            FontField::UiSize => "13",
+            FontField::MonoFamily => "Menlo",
+            FontField::MonoSize => "12",
+        };
+        let handle = cx.entity();
+        let f = TextField::new(
+            cur.into(),
+            SharedString::from(placeholder),
+            Arc::new(move |s, app| {
+                handle.update(app, |this, cx| this.apply_font_field(which, s, cx));
+            }),
+            cx,
+        );
+        if let Some(slot) = self.font_fields.get_mut(ix) {
+            *slot = Some(f.clone());
+        }
+        f
+    }
+
+    /// 字号夹取范围（太小看不清，太大固定行高的控件会挤爆）
+    pub const FONT_UI_RANGE: (f32, f32) = (10., 20.);
+    pub const FONT_MONO_RANGE: (f32, f32) = (9., 24.);
+
+    pub fn apply_font_field(
+        &mut self,
+        which: crate::model::FontField,
+        raw: &str,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::model::FontField;
+        let t = raw.trim().to_string();
+        match which {
+            FontField::UiFamily => self.settings.font_ui = Some(t),
+            FontField::MonoFamily => self.settings.font_mono = Some(t),
+            FontField::UiSize => {
+                let (lo, hi) = Self::FONT_UI_RANGE;
+                let Ok(v) = t.parse::<f32>() else { return };
+                if !v.is_finite() {
+                    return;
+                }
+                self.settings.font_ui_size = Some(v.clamp(lo, hi));
+            }
+            FontField::MonoSize => {
+                let (lo, hi) = Self::FONT_MONO_RANGE;
+                let Ok(v) = t.parse::<f32>() else { return };
+                if !v.is_finite() {
+                    return;
+                }
+                self.settings.font_mono_size = Some(v.clamp(lo, hi));
+            }
+        }
+        self.apply_fonts(cx);
+    }
+
+    /// 字体设置推给全局（改完当帧生效）+ 落盘。
+    pub fn apply_fonts(&mut self, cx: &mut Context<Self>) {
+        crate::theme::set_fonts(
+            &crate::settings::font_ui(&self.settings),
+            crate::settings::font_ui_size(&self.settings),
+            &crate::settings::font_mono(&self.settings),
+            crate::settings::font_mono_size(&self.settings),
+        );
+        crate::settings::save(&self.settings).ok();
+        cx.notify();
+    }
+
     /// 外观栏的「编辑器行高」输入框：手动输入 px，12~32。
     pub(crate) fn editor_line_field(&mut self, cx: &mut Context<Self>) -> Entity<TextField> {
         if let Some(f) = &self.editor_line_field {

@@ -152,6 +152,16 @@ pub struct RequestItem {
     /// 认证方式（模板，可写 `{{ 变量 }}`）；None = 不用认证（老文件没这字段也一样）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auth: Option<crate::auth::Auth>,
+    /// 树里的显示顺序（新增/拖拽/复制时写）。老文件没这字段 → 按名字排在后面。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub order: Option<f64>,
+}
+
+/// 树里一行的排序键：显式 order 优先（小的在前），没 order 的按名字垫后。
+/// 同一容器里 order 值相同（或都没有）时按名字，保证每次打开的次序都一样 ——
+/// 之前用的是 readdir 顺序，同一份数据两次打开可能不一样。
+pub fn sort_key(order: Option<f64>, name: &str) -> (f64, String) {
+    (order.unwrap_or(f64::INFINITY), name.to_lowercase())
 }
 
 /// serde 默认值：老文件里没有该字段时按 true（默认展开）。
@@ -178,6 +188,9 @@ pub struct Group {
     /// `collections/<cid>/groups/<gid>/`，层级只是元数据 —— 建/删/改路径都不用动。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
+    /// 同层显示顺序，同 `RequestItem::order`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub order: Option<f64>,
     #[serde(skip)]
     pub requests: Vec<RequestItem>,
 }

@@ -84,9 +84,48 @@ fn install_panic_log() {
     }));
 }
 
+/// 开一个主窗口。`reuse` 给「点 Dock 图标重开」用：窗口没了但 model 还在，
+/// 直接把它挂到新窗口上，菜单栏动作与状态都不丢。
+fn open_main_window(cx: &mut App, reuse: Option<Entity<AppModel>>) -> Entity<AppModel> {
+    let bounds = Bounds::centered(None, size(px(1280.), px(800.)), cx);
+    let window = cx
+        .open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                titlebar: Some(TitlebarOptions {
+                    title: Some("treq".into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            move |_, cx| match reuse {
+                Some(view) => view,
+                None => cx.new(AppModel::new),
+            },
+        )
+        .expect("打开主窗口失败");
+    window
+        .update(cx, |_, _, cx| cx.entity())
+        .expect("取主窗口 root view 失败")
+}
+
+// 当前 model（窗口关掉后依然活着，重开窗口时挂回去）
+thread_local! {
+    static REUSE: std::cell::RefCell<Option<Entity<AppModel>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
 fn main() {
     install_panic_log();
     let app = Application::new().with_assets(widgets::SvgAssets);
+    // 关掉窗口后点 Dock 图标 / 双击 app：把同一个 model 挂回新窗口——不复用的话，
+    // 菜单栏那些 on_action 还指着旧窗口里的它，点了没反应（表现为「只能退出重开」）
+    app.on_reopen(|cx| {
+        let live = REUSE.with(|c| c.borrow().clone());
+        if let Some(view) = live {
+            open_main_window(cx, Some(view));
+        }
+    });
     app.run(|cx: &mut App| {
         // 记住最近的按键（订阅要活到进程结束，故意泄漏）
         std::mem::forget(cx.observe_keystrokes(|e, _window, _cx| {
@@ -144,21 +183,10 @@ fn main() {
             },
         ]);
 
-        let bounds = Bounds::centered(None, size(px(1280.), px(800.)), cx);
-        let window = cx
-            .open_window(
-                WindowOptions {
-                    window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    titlebar: Some(TitlebarOptions {
-                        title: Some("treq".into()),
-                        ..Default::default()
-                    }),
-                    ..Default::default()
-                },
-                |_, cx| cx.new(AppModel::new),
-            )
-            .unwrap();
-        let entity: Entity<AppModel> = window.update(cx, |_, _, cx| cx.entity()).unwrap();
+        let entity = open_main_window(cx, None);
+
+        // 记下 model 供「点 Dock 图标重开」用（on_reopen 注册在 Application 上，先于这里）
+        REUSE.with(|c| *c.borrow_mut() = Some(entity.clone()));
 
         let handle = entity.clone();
         cx.on_action(move |_: &Quit, cx| cx.quit());

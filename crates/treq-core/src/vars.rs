@@ -291,6 +291,7 @@ pub fn resolve_request(req: &RequestItem, vars: &BTreeMap<String, String>) -> Re
                 })
                 .collect(),
         },
+        order: None,
     }
 }
 pub(crate) fn urlencode(s: &str) -> String {
@@ -364,6 +365,7 @@ mod tests {
                 token: "{{ token }}".into(),
                 prefix: String::new(),
             }),
+            order: None,
         }
     }
 

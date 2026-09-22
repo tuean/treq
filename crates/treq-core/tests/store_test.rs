@@ -99,6 +99,7 @@ fn request_yaml_round_trip() {
         description: "说明".into(),
         docs_open: true,
         auth: None,
+        order: None,
     };
     let yaml = serde_yaml::to_string(&req).unwrap();
     let back: RequestItem = serde_yaml::from_str(&yaml).unwrap();
@@ -363,4 +364,93 @@ fn move_request_between_collections_and_groups() {
     );
 
     let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn move_request_between_groups_and_keep_order_on_disk() {
+    let root = tmp_ws("move-req");
+    let store = WorkspaceStore::new(root.clone());
+    store.ensure_root().unwrap();
+    let col = store.create_collection("C").unwrap();
+    let g1 = store.create_group(&col.id, "G1", None).unwrap();
+    let g2 = store.create_group(&col.id, "G2", None).unwrap();
+    let r1 = store.create_request(&col.id, "r1").unwrap();
+    let r2 = store.create_request(&col.id, "r2").unwrap();
+    let r3 = store.create_request(&col.id, "r3").unwrap();
+
+    // 顶层顺序 r3、r1、r2（复制/拖拽就是这么写的）
+    let top: Vec<String> = [&r3, &r1, &r2].iter().map(|r| r.id.clone()).collect();
+    store.set_request_orders(&top).unwrap();
+    let ws = store.load().unwrap();
+    let names: Vec<String> = ws.collections[0]
+        .requests
+        .iter()
+        .map(|r| r.name.clone())
+        .collect();
+    assert_eq!(names, vec!["r3", "r1", "r2"], "重开也按 order 排");
+
+    // 把 r1、(顺序靠前的) r3 都挪进 G1：G1 里 r3 在前
+    store.move_request(&r1.id, &col.id, Some(&g1.id)).unwrap();
+    store.move_request(&r3.id, &col.id, Some(&g1.id)).unwrap();
+    store.set_request_orders(&[r3.id.clone(), r1.id.clone()]).unwrap();
+    let ws = store.load().unwrap();
+    let colb = ws.collections.iter().find(|c| c.id == col.id).unwrap();
+    let g1b = colb.groups.iter().find(|g| g.id == g1.id).unwrap();
+    assert_eq!(
+        g1b.requests.iter().map(|r| &r.name).collect::<Vec<_>>(),
+        vec!["r3", "r1"]
+    );
+    assert_eq!(
+        colb.requests.iter().map(|r| &r.name).collect::<Vec<_>>(),
+        vec!["r2"],
+        "挪走的请求不会留在原地"
+    );
+    // 索引也跟着修好了：还能原地保存回分组目录
+    let mut moved = g1b.requests[1].clone();
+    moved.name = "r1-改名".into();
+    store.save_request(&moved).unwrap();
+    assert!(root
+        .join(format!(
+            "collections/{}/groups/{}/requests/{}.yml",
+            col.id, g1.id, r1.id
+        ))
+        .is_file());
+    let _ = g2;
+}
+
+#[test]
+fn set_group_parent_moves_dir_and_refuses_nothing_else() {
+    let root = tmp_ws("move-group");
+    let store = WorkspaceStore::new(root.clone());
+    store.ensure_root().unwrap();
+    let col = store.create_collection("C").unwrap();
+    let col2 = store.create_collection("C2").unwrap();
+    let parent = store.create_group(&col.id, "P", None).unwrap();
+    let child = store.create_group(&col.id, "K", None).unwrap();
+    let deep = store
+        .create_request_in(&col.id, Some(&child.id), "deep")
+        .unwrap();
+
+    // K 挂到 P 下面，并且跨到另一个集合也不丢请求
+    store
+        .set_group_parent(&child.id, &col.id, Some(&parent.id))
+        .unwrap();
+    store.set_group_orders(&[child.id.clone(), parent.id.clone()]).unwrap();
+    let ws = store.load().unwrap();
+    let groups = &ws.collections.iter().find(|c| c.id == col.id).unwrap().groups;
+    assert_eq!(
+        groups.iter().find(|g| g.id == child.id).unwrap().parent,
+        Some(parent.id.clone())
+    );
+    store.set_group_parent(&parent.id, &col2.id, None).unwrap();
+    assert!(root
+        .join(format!("collections/{}/groups/{}", col2.id, parent.id))
+        .join("group.yml")
+        .is_file());
+    // 跨集合搬完，分组里的请求还能按 id 找到（索引已修）
+    let ws = store.load().unwrap();
+    assert_eq!(ws.collections.len(), 2);
+    assert!(store.find_request_file(&deep.id).is_ok());
+    let found = store.find_group_dir(&child.id).unwrap();
+    assert!(found.join("requests").join(format!("{}.yml", deep.id)).is_file());
 }

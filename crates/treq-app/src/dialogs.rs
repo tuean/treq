@@ -16,6 +16,21 @@ fn setting_label(text: &str) -> impl IntoElement {
         .child(SharedString::from(text.to_string()))
 }
 
+/// 配置页一行字体设置：左标签 + 定宽输入框。
+fn font_row(
+    label: &str,
+    field: gpui::Entity<crate::widgets::TextField>,
+    width: gpui::Pixels,
+    _model: &crate::model::AppModel,
+) -> impl IntoElement {
+    div()
+        .flex()
+        .items_center()
+        .gap(theme::sp4())
+        .child(div().w(px(110.)).child(setting_label(label)))
+        .child(div().w(width).child(field))
+}
+
 /// 单选圆点（选中态品牌紫实心）。
 fn radio_dot(selected: bool) -> impl IntoElement {
     div()
@@ -255,7 +270,7 @@ impl AppModel {
             .flex_col()
             .gap(theme::sp1())
             .font(theme::mono())
-            .text_size(px(theme::font_small() + 1.))
+            .text_size(px(theme::mono_size()))
             .line_height(px(theme::line_h()))
             .overflow_scroll().track_scroll(&bar_codegen_body);
         for line in code.lines() {
@@ -592,7 +607,7 @@ impl AppModel {
                                 .flex()
                                 .gap(theme::sp3())
                                 .font(theme::mono())
-                                .text_size(px(theme::font_small() + 1.))
+                                .text_size(px(theme::mono_size()))
                                 .child(
                                     div()
                                         .flex_none()
@@ -760,7 +775,7 @@ impl AppModel {
                         .flex_none()
                         .truncate()
                         .font(theme::mono())
-                        .text_size(px(theme::font_small() + 1.))
+                        .text_size(px(theme::mono_size()))
                         .text_color(theme::json_key())
                         .child(SharedString::from(name.clone())),
                 )
@@ -770,7 +785,7 @@ impl AppModel {
                         .min_w_0()
                         .truncate()
                         .font(theme::mono())
-                        .text_size(px(theme::font_small() + 1.))
+                        .text_size(px(theme::mono_size()))
                         .text_color(if shown.is_empty() {
                             theme::fg_dark()
                         } else {
@@ -809,7 +824,7 @@ impl AppModel {
                             .flex_none()
                             .truncate()
                             .font(theme::mono())
-                            .text_size(px(theme::font_small() + 1.))
+                            .text_size(px(theme::mono_size()))
                             .text_color(theme::red())
                             .child(SharedString::from(name.clone())),
                     )
@@ -1093,6 +1108,62 @@ impl AppModel {
                         .text_size(px(theme::font_small()))
                         .text_color(theme::fg_dark())
                         .child(self.t("settings.editor_line_h.hint")),
+                ),
+        );
+
+        // 字体：界面与代码分开配，家族留空＝系统默认，改完立即生效
+        use crate::model::FontField;
+        let (ui_lo, ui_hi) = AppModel::FONT_UI_RANGE;
+        let (mono_lo, mono_hi) = AppModel::FONT_MONO_RANGE;
+        body = body.child(
+            div()
+                .pt(theme::sp5())
+                .flex()
+                .flex_col()
+                .gap(theme::sp2())
+                .child(setting_label(self.t("settings.font")))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(theme::sp3())
+                        .child(font_row(
+                            self.t("settings.font.ui"),
+                            self.font_field(FontField::UiFamily, cx),
+                            px(210.),
+                            self,
+                        ))
+                        .child(font_row(
+                            self.t("settings.font.ui_size"),
+                            self.font_field(FontField::UiSize, cx),
+                            px(90.),
+                            self,
+                        ))
+                        .child(font_row(
+                            self.t("settings.font.mono"),
+                            self.font_field(FontField::MonoFamily, cx),
+                            px(210.),
+                            self,
+                        ))
+                        .child(font_row(
+                            self.t("settings.font.mono_size"),
+                            self.font_field(FontField::MonoSize, cx),
+                            px(90.),
+                            self,
+                        )),
+                )
+                .child(
+                    div()
+                        .text_size(px(theme::font_small()))
+                        .text_color(theme::fg_dark())
+                        .child(format!(
+                            "{}（{}–{} / {}–{}）",
+                            self.t("settings.font.hint"),
+                            ui_lo as i32,
+                            ui_hi as i32,
+                            mono_lo as i32,
+                            mono_hi as i32
+                        )),
                 ),
         );
         body.into_any()
@@ -1736,7 +1807,7 @@ impl AppModel {
                                 .max_h(px(160.))
                                 .overflow_scroll().track_scroll(&bar_url_dlg_text)
                                 .font(theme::mono())
-                                .text_size(px(theme::font_small() + 1.))
+                                .text_size(px(theme::mono_size()))
                                 .line_height(px(theme::line_h()))
                                 .text_color(theme::fg_dim())
                                 .child(SharedString::from(if resolved.is_empty() {
@@ -1804,7 +1875,7 @@ impl AppModel {
             .border_color(theme::border_strong())
             .rounded(px(3.))
             .font(theme::mono())
-            .text_size(px(theme::font_small() + 1.))
+            .text_size(px(theme::mono_size()))
             .line_height(px(theme::line_h()))
             .text_color(theme::fg_normal())
             .track_focus(&focus)
@@ -1943,7 +2014,7 @@ impl AppModel {
                                 .border_color(theme::border_strong())
                                 .rounded(px(3.))
                                 .font(theme::mono())
-                                .text_size(px(theme::font_small() + 1.))
+                                .text_size(px(theme::mono_size()))
                                 .child(field),
                         ),
                     footer,

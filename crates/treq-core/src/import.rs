@@ -350,6 +350,7 @@ fn pm_collect(
                 .unwrap_or_default(),
             docs_open: false,
             auth,
+            order: None,
         };
         item.params.retain(|p| !p.key.is_empty());
         if prefix.is_empty() {
@@ -364,6 +365,7 @@ fn pm_collect(
                     parent: None,
                     name: gname,
                     requests: vec![item],
+                    order: None,
                 });
             }
         }
@@ -630,6 +632,7 @@ fn openapi(v: &Value, fallback: &str) -> Result<(String, Vec<Group>, Vec<Request
                 description: desc.trim().to_string(),
                 docs_open: false,
                 auth,
+                order: None,
             };
             let tag = op
                 .get("tags")
@@ -648,6 +651,7 @@ fn openapi(v: &Value, fallback: &str) -> Result<(String, Vec<Group>, Vec<Request
                     parent: None,
                     name: tag,
                     requests: vec![req],
+                    order: None,
                 });
             }
         }
@@ -743,6 +747,7 @@ fn har(v: &Value, fallback: &str) -> Result<(String, Vec<Group>, Vec<RequestItem
             description: String::new(),
             docs_open: false,
             auth: None,
+            order: None,
         };
         if let Some(g) = groups.iter_mut().find(|g| g.name == bucket) {
             g.requests.push(item);
@@ -752,6 +757,7 @@ fn har(v: &Value, fallback: &str) -> Result<(String, Vec<Group>, Vec<RequestItem
                 parent: None,
                 name: bucket,
                 requests: vec![item],
+                order: None,
             });
         }
     }

@@ -22,6 +22,7 @@ fn req() -> RequestItem {
         description: String::new(),
         docs_open: true,
         auth: None,
+        order: None,
     }
 }
 

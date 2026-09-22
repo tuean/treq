@@ -139,13 +139,26 @@ impl AppModel {
                     .iter_mut()
                     .find(|c| c.id == col_id)
                 {
-                    match group_id {
-                        Some(gid) => {
-                            if let Some(g) = c.groups.iter_mut().find(|g| g.id == gid) {
-                                g.requests.push(created);
-                            }
+                    // 紧跟在源请求下面（原来是 push 到最后，找副本很费劲）
+                    let list = match group_id.as_deref() {
+                        Some(gid) => c
+                            .groups
+                            .iter_mut()
+                            .find(|g| g.id == gid)
+                            .map(|g| &mut g.requests),
+                        None => Some(&mut c.requests),
+                    };
+                    if let Some(list) = list {
+                        let at = list.iter().position(|r| r.id == id).map(|i| i + 1);
+                        match at {
+                            Some(i) => list.insert(i, created),
+                            None => list.push(created),
                         }
-                        None => c.requests.push(created),
+                        // 次序也写进文件：重开、切换工作区后副本还在原位
+                        let ids: Vec<String> = list.iter().map(|r| r.id.clone()).collect();
+                        if let Err(e) = self.store.set_request_orders(&ids) {
+                            eprintln!("treq: 写复制请求的次序失败：{e}");
+                        }
                     }
                 }
                 self.toast(format!("{}{}", self.t("flash.duplicated"), name), cx);

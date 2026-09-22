@@ -97,7 +97,7 @@ impl AppModel {
                     .items_center()
                     .cursor_pointer()
                     .font(theme::mono())
-                    .text_size(px(theme::font_small() + 1.))
+                    .text_size(px(theme::mono_size()))
                     .when(active, |d| d.bg(theme::bg_hover()))
                     .text_color(if active {
                         theme::fg_bright()

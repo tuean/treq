@@ -273,7 +273,7 @@ impl AppModel {
                 .py(theme::sp3())
                 .child(
                     div()
-                        .text_size(px(theme::font_small() + 1.))
+                        .text_size(px(theme::mono_size()))
                         .text_color(theme::red())
                         .child(SharedString::from(err.to_string())),
                 );
@@ -372,10 +372,14 @@ impl AppModel {
                                 MouseButton::Left,
                                 cx.listener(
                                     move |this: &mut AppModel,
-                                          _: &MouseDownEvent,
+                                          e: &MouseDownEvent,
                                           w: &mut Window,
                                           cx: &mut Context<AppModel>| {
-                                        this.resp_sel_begin(ix, w, cx);
+                                        match e.click_count {
+                                            2 => this.resp_double_click(ix, cx),
+                                            3.. => this.resp_select_all(cx),
+                                            _ => this.resp_sel_begin(ix, w, cx),
+                                        }
                                     },
                                 ),
                             )
@@ -402,7 +406,7 @@ impl AppModel {
                             .flex()
                             .w_full()
                             .font(theme::mono())
-                            .text_size(px(theme::font_small() + 1.))
+                            .text_size(px(theme::mono_size()))
                             .line_height(px(theme::line_h()))
                             .when(this.sse_show_time && !this.sse_marks.is_empty(), |d| {
                                 d.child(time_cell(sse_time_for(
@@ -417,10 +421,14 @@ impl AppModel {
                                 MouseButton::Left,
                                 cx.listener(
                                     move |this: &mut AppModel,
-                                          _: &MouseDownEvent,
+                                          e: &MouseDownEvent,
                                           w: &mut Window,
                                           cx: &mut Context<AppModel>| {
-                                        this.resp_sel_begin(ix, w, cx);
+                                        match e.click_count {
+                                            2 => this.resp_double_click(ix, cx),
+                                            3.. => this.resp_select_all(cx),
+                                            _ => this.resp_sel_begin(ix, w, cx),
+                                        }
                                     },
                                 ),
                             )
