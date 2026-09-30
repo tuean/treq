@@ -189,12 +189,46 @@ scripts/
 ## 开发
 
 ```bash
-cargo test --workspace        # 237 个用例（core 纯逻辑 + http/curl/store/codegen/import 集成）
+cargo test --workspace        # 264 个用例（core 纯逻辑 + http/curl/store/codegen/import 集成）
 cargo clippy --workspace --all-targets
-cargo fmt --all
+rustfmt --edition 2024 <你改过的 .rs>   # 别用 `cargo fmt --all`，见下方
 
 python3 scripts/mock_server.py    # 本地 mock 服务：127.0.0.1:8321
 ```
+
+> **别用 `cargo fmt --all`**：工作区里常有大量未提交改动，`--all` 会把它们一起重排，
+> 几百行纯格式噪音混进来，分不清哪句是自己改的（严重时还会盖掉别人的在写改动）。
+> 只格式化自己动过的文件：
+>
+> ```bash
+> rustfmt --edition 2024 crates/treq-app/src/theme.rs crates/treq-app/src/i18n.rs
+> ```
+
+### 推代码到 GitHub（网络不通时怎么办）
+
+**平时不用配代理**，`git push` 正常走系统网络。只有 `github.com:443` 连不上时才需要临时代理：
+
+```bash
+# 症状：fetch/push 卡住几十秒，最后报
+#   Failed to connect to github.com port 443: Couldn't connect to server
+# 先分清是 DNS 还是被墙：ping 通、但 443 超时 → 基本就是墙
+ping -c 2 github.com
+curl -sS -x http://127.0.0.1:7897 -o /dev/null -w "%{http_code}\n" https://github.com
+
+# 本机代理端口（clash-verge 的 HTTP 口；系统代理走的是 PAC 33331，git 不认 PAC）
+for p in 7897 7890 1087 8118 1080; do (echo > /dev/tcp/127.0.0.1/$p) 2>/dev/null && echo "开: $p"; done
+
+# 临时给这一次 push/fetch 指定代理（**不写进配置**，用完即弃）
+git -c http.proxy=http://127.0.0.1:7897 -c https.proxy=http://127.0.0.1:7897 push origin main
+git -c http.proxy=http://127.0.0.1:7897 -c https.proxy=http://127.0.0.1:7897 fetch origin
+```
+
+为什么不能靠系统代理：macOS 这边是 **PAC**（`scutil --proxy` 里
+`ProxyAutoConfigURLString = http://127.0.0.1:33331/commands/pac`，`HTTPEnable/HTTPSEnable = 0`），
+终端里的 git / curl 都不解析 PAC，环境变量里也没有 `HTTP_PROXY`，所以直连必被挡。
+
+真要一劳永逸（作用于该仓库所有 remote 操作）：`git config http.proxy http://127.0.0.1:7897`
+（加 `--global` 则为全局）。
 
 约定：
 
