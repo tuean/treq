@@ -44,24 +44,24 @@ mod nu {
 
 /// **harbor** 专用色阶：暮光蓝港的蓝 + 日落橙辉的橙（黄昏海港取色）。
 mod harbor {
-    // 暮光蓝港：从最深的夜蓝到黎明前的灰蓝
-    pub const NIGHT: u32 = 0x0a1119; // 入夜海面
-    pub const DEEP: u32 = 0x111d29; // 深水蓝
-    pub const TWILIGHT: u32 = 0x16283a; // 暮光蓝（主色阶）
-    pub const HARBOR: u32 = 0x1d3550; // 港湾蓝（浮起面）
-    pub const DUSK: u32 = 0x274666; // 暮色蓝（边框 / 选中）
-    pub const MIST: u32 = 0x35597d; // 海雾蓝（强边框）
-    pub const SKY: u32 = 0x7fa8cc; // 天色蓝（次级文字）
+    // 暮光蓝港：锚点是深海靛蓝 #141829（夜色面板的基色），往上逐级提亮
+    pub const NIGHT: u32 = 0x0e111c; // 入夜海面（比面板更深一档）
+    pub const DEEP: u32 = 0x111524; // 深水（下沉条）
+    pub const PANEL: u32 = 0x141829; // 深海靛蓝 —— 主面板基色（锚点）
+    pub const HARBOR: u32 = 0x1b2138; // 港湾蓝（浮起面 / 按钮）
+    pub const DUSK: u32 = 0x252c47; // 暮色蓝（边框 / 选中）
+    pub const MIST: u32 = 0x333c5e; // 海雾蓝（强边框）
+    pub const SKY: u32 = 0x8fa0c8; // 天色蓝（次级文字）
     // 日落橙辉：强调色一族
     pub const EMBER_DEEP: u32 = 0xb4531f; // 压暗的余烬橙（用于浅字底）
     pub const SUNSET: u32 = 0xef8b4a; // 日落橙（主强调）
     pub const SUNSET_HI: u32 = 0xffa96b; // 日落橙高亮（hover）
     pub const GOLD: u32 = 0xf6c67a; // 夕照金（文字强调）
     // 海港夜色里的文字
-    pub const FOAM: u32 = 0xe8f1fa; // 浪花白（最亮文字）
-    pub const SAND: u32 = 0xc6d6e5; // 沙岸浅灰（正文）
-    pub const STEEL: u32 = 0x8ba3ba; // 钢灰蓝（次要）
-    pub const HAZE: u32 = 0x6d8399; // 远雾（行号 / 占位）
+    pub const FOAM: u32 = 0xeaeef8; // 浪花白（最亮文字）
+    pub const SAND: u32 = 0xc7cee0; // 沙岸浅灰（正文）
+    pub const STEEL: u32 = 0x8d97b4; // 钢灰蓝（次要）
+    pub const HAZE: u32 = 0x69738f; // 远雾（行号 / 占位）
     // 港口信号灯
     pub const SIGNAL_GREEN: u32 = 0x5fd39a; // 航道绿
     pub const SIGNAL_RED: u32 = 0xff6b6b; // 警示红
@@ -159,21 +159,21 @@ impl Palette {
 /// - 强调：日落橙（主按钮、焦点、选中条），hover 提亮一档。
 /// - 面板：`0xRRGGBBAA` 带 alpha，配窗口毛玻璃就是夜色玻璃面板。
 const HARBOR: Palette = Palette {
-    // 背景：应用底与面板半透明（夜色玻璃），下沉条/内嵌盒再深一档
-    bg_base: 0x0d1721e6,       // 90% 夜色
-    bg_pane: 0x121f2dd9,       // 85% 暮光面
-    bg_sunken: 0x0c1620f2,     // 95% 下沉条
-    bg_field: 0x0e1a26f2,      // 95% 内嵌盒
-    bg_popup: 0x1a2b3ef7,      // 97% 浮层
-    bg_button: 0x21384ff2,     // 按钮 / pill 底
+    // 背景：**主面不透明**，色号所见即所得（锚点 #141829）；毛玻璃只留给浮起面
+    bg_base: harbor::PANEL,      // 应用底：深海靛蓝 #141829
+    bg_pane: harbor::PANEL,      // 编辑区 / 响应区：同一块面板
+    bg_sunken: harbor::NIGHT,    // 下沉条（URL 行 / tab 条）比面板深一档
+    bg_field: harbor::DEEP,      // 内嵌盒
+    bg_popup: 0x1b2138fa,        // 浮层 / 菜单：98% —— 这里保留毛玻璃的透
+    bg_button: harbor::HARBOR,   // 按钮 / pill 底（港湾蓝）
     bg_hover: 0xffffff14,      // 悬停：白色微光叠加
     bg_selected: 0xffffff1f,   // 选中行
     bg_open: 0xffffff24,       // 下拉框打开态
     bg_close_hover: 0xd14040f2, // 危险 hover：警示红
     bg_success: harbor::SIGNAL_GREEN,
-    // 边框：暗端用暮色蓝，亮端用白色微光
-    border: 0x2c4a68d9,
-    border_strong: 0x3d6285e6,
+    // 边框：靛蓝同族，不用白灰
+    border: 0x2b3350e6,
+    border_strong: 0x3a4468f0,
     border_input: 0xffffff24,
     // 文字：浪花白 → 沙岸 → 钢灰蓝 → 远雾
     fg_dark: harbor::HAZE,    // 行号 / 占位
@@ -191,7 +191,7 @@ const HARBOR: Palette = Palette {
     green: harbor::SIGNAL_GREEN,
     red: harbor::SIGNAL_RED,
     orange: harbor::BUOY_YELLOW,
-    // JSON：海港夜色下的语法色（键=天色蓝、字符串=航道绿、数字=夕照金、常量=日落橙）
+    // JSON：深靛底上的语法色（键=天色蓝、字符串=航道绿、数字=夕照金、常量=日落橙）
     json_key: harbor::SKY,
     json_string: harbor::SIGNAL_GREEN,
     json_num: harbor::GOLD,
@@ -626,14 +626,24 @@ pub fn input_line_h() -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
 
     /// 取某套方案的某个色（**不动全局状态**：全局是进程级的，并行测试会互相踩）。
     fn of(s: ThemeScheme) -> &'static Palette {
         palette_of(s)
     }
 
+    /// 全局方案是**进程级**状态，而 `cargo test` 多线程并行跑同一进程里的用例 ——
+    /// 任何会读/写全局方案的用例都必须先拿这把锁，否则互相踩（曾出现过时好时坏）。
+    static SCHEME_LOCK: Mutex<()> = Mutex::new(());
+
+    fn scheme_guard() -> std::sync::MutexGuard<'static, ()> {
+        SCHEME_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// 临时切全局方案（只有确实要验证「全局切换」的用例才用它，跑完还原）。
     fn with_scheme<T>(s: ThemeScheme, f: impl FnOnce() -> T) -> T {
+        let _guard = scheme_guard();
         let old = scheme();
         set_scheme(s);
         let out = f();
@@ -672,12 +682,24 @@ mod tests {
             assert!(c.b > c.r && c.b > c.g, "{name} 应当是暮光蓝");
             assert!(luma(c) < 0.30, "{name} 应当是夜色（暗）");
         }
+        // 主面板色号落在 #141829 附近（用户指定的锚点色）：靛蓝、偏暗、蓝通道最大
+        let panel = h.c(h.bg_pane);
+        let (r, g, b) = (
+            (panel.r * 255.).round() as u32,
+            (panel.g * 255.).round() as u32,
+            (panel.b * 255.).round() as u32,
+        );
+        let d = |a: u32, b: u32| a.abs_diff(b);
+        assert!(
+            d(r, 0x14) <= 6 && d(g, 0x18) <= 6 && d(b, 0x29) <= 6,
+            "主面板应当接近 #141829，实际 #{r:02x}{g:02x}{b:02x}"
+        );
         // 强调是日落橙：红通道最大
         let acc = h.c(h.accent);
         assert!(acc.r > acc.g && acc.g > acc.b, "accent 应当是日落橙");
-        // 半透明夜色面板：主面板带 alpha
-        assert!(h.c(h.bg_base).a < 1.0, "夜色面板应当带 alpha");
-        assert!(h.c(h.bg_pane).a < 1.0, "夜色面板应当带 alpha");
+        // 主面板不透明（色号所见即所得），毛玻璃只留给浮起面
+        assert_eq!(h.c(h.bg_pane).a, 1.0, "主面板应当是不透明实色");
+        assert!(h.c(h.bg_popup).a < 1.0, "浮层应当带 alpha（夜色玻璃）");
     }
 
     #[test]
@@ -744,6 +766,7 @@ mod tests {
 
     #[test]
     fn scheme_round_trips_through_the_atomic() {
+        // 注意：`with_scheme` 内部已经持锁，这里**不能**再拿一次（会自锁）
         with_scheme(ThemeScheme::DshLight, || {
             assert_eq!(scheme(), ThemeScheme::DshLight);
             assert_eq!(bg_base(), LIGHT.c(LIGHT.bg_base), "浅色应取 LIGHT 的底色");
