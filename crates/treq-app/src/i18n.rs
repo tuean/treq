@@ -580,6 +580,14 @@ pub fn tr(locale: Locale, key: &str) -> &'static str {
         (Locale::Zh, "theme.harbor.desc") => {
             "暮光蓝港 · 日落橙辉 · 半透明夜色面板（默认）"
         }
+        (Locale::Zh, "theme.insomnia_dark") => "Insomnia 暗色",
+        (Locale::Zh, "theme.insomnia_dark.desc") => {
+            "经典 Insomnia 深灰面板 + 品牌紫（treq 最初的取色，#2c2c2c / #8776d5）"
+        }
+        (Locale::Zh, "theme.insomnia_light") => "Insomnia 亮色",
+        (Locale::Zh, "theme.insomnia_light.desc") => {
+            "Insomnia 浅底：白色面板 + 同一个品牌紫，语法色为白底调暗过"
+        }
         (Locale::Zh, "theme.dsh_light") => "dsh 浅色",
         (Locale::Zh, "theme.dsh_light.desc") => "跟随 dsh 浅色：白底深字，亮环境/投屏更清楚",
         (Locale::Zh, "settings.general.language") => "语言",
@@ -621,6 +629,14 @@ pub fn tr(locale: Locale, key: &str) -> &'static str {
         (Locale::En, "theme.harbor") => "harbor Twilight Harbor",
         (Locale::En, "theme.harbor.desc") => {
             "Twilight-blue harbor · sunset-orange glow · translucent night panels (default)"
+        }
+        (Locale::En, "theme.insomnia_dark") => "Insomnia Dark",
+        (Locale::En, "theme.insomnia_dark.desc") => {
+            "Classic Insomnia grey panels + brand purple (treq's original palette)"
+        }
+        (Locale::En, "theme.insomnia_light") => "Insomnia Light",
+        (Locale::En, "theme.insomnia_light.desc") => {
+            "Insomnia on white: white panels + the same brand purple, darker syntax colors"
         }
         (Locale::En, "theme.dsh_light") => "dsh Light",
         (Locale::En, "theme.dsh_light.desc") => "dsh light: dark text on white, clearer in bright rooms",

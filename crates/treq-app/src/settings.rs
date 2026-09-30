@@ -74,24 +74,38 @@ impl DropdownStyle {
 /// 配色方案（「外观」设置里可切换）。
 ///
 /// - `Harbor`：**暮光蓝港 · 日落橙辉 · 半透明夜色面板**（默认）。色阶底子是 dsh 的
-///   alias 层，面板带 alpha（配合窗口毛玻璃透出底色），强调色换成日落橙。
+///   alias 层，主面不透明（#141829），浮层保留 alpha 走毛玻璃，强调色是日落橙。
+/// - `InsomniaDark`：**Insomnia 暗色** —— treq 最早的取色就是照它逐点取的
+///   （面板 #2c2c2c / 输入条 #212121 / 品牌紫 #8776d5 / JSON 键绿串黄）。
+/// - `InsomniaLight`：Insomnia 亮色（同一个品牌紫，浅底适配过的语法色）。
 /// - `DshLight`：dsh 浅色（色值取自 dsh 设计 token 的 alias 层）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ThemeScheme {
     #[serde(rename = "harbor")]
     #[default]
     Harbor,
+    #[serde(rename = "insomnia-dark")]
+    InsomniaDark,
+    #[serde(rename = "insomnia-light")]
+    InsomniaLight,
     #[serde(rename = "dsh-light")]
     DshLight,
 }
 
 impl ThemeScheme {
-    pub const ALL: [ThemeScheme; 2] = [ThemeScheme::Harbor, ThemeScheme::DshLight];
+    pub const ALL: [ThemeScheme; 4] = [
+        ThemeScheme::Harbor,
+        ThemeScheme::InsomniaDark,
+        ThemeScheme::InsomniaLight,
+        ThemeScheme::DshLight,
+    ];
 
     /// i18n 键：方案名
     pub fn label_key(self) -> &'static str {
         match self {
             ThemeScheme::Harbor => "theme.harbor",
+            ThemeScheme::InsomniaDark => "theme.insomnia_dark",
+            ThemeScheme::InsomniaLight => "theme.insomnia_light",
             ThemeScheme::DshLight => "theme.dsh_light",
         }
     }
@@ -100,6 +114,8 @@ impl ThemeScheme {
     pub fn desc_key(self) -> &'static str {
         match self {
             ThemeScheme::Harbor => "theme.harbor.desc",
+            ThemeScheme::InsomniaDark => "theme.insomnia_dark.desc",
+            ThemeScheme::InsomniaLight => "theme.insomnia_light.desc",
             ThemeScheme::DshLight => "theme.dsh_light.desc",
         }
     }

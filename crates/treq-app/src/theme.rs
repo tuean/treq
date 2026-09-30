@@ -3,10 +3,12 @@
 //! - **static 色阶**：与主题无关的固定色值（冷/暖中性、品牌蓝、语义色、以及 harbor 的暮光蓝与日落橙）。
 //! - **alias 别名层**：`bg-base` / `label-secondary` / `border-l2` … 每套配色各自绑定一组别名。
 //!
-//! 两套方案：
+//! 四套方案：
 //! - **[`ThemeScheme::Harbor`]**（默认）**暮光蓝港 · 日落橙辉 · 半透明夜色面板** ——
-//!   黄昏海港的暮光蓝做底、日落橙做强调；面板色带 alpha，配合窗口
-//!   `WindowBackgroundAppearance::Blurred` 透出底色，成「夜色毛玻璃」。
+//!   黄昏海港的暮光蓝做底（#141829）、日落橙做强调；浮层带 alpha，配合窗口
+//!   `WindowBackgroundAppearance::Blurred` 成「夜色毛玻璃」。
+//! - **[`ThemeScheme::InsomniaDark`]**：**Insomnia 暗色** —— treq 最早的取色就照它逐点取的。
+//! - **[`ThemeScheme::InsomniaLight`]**：Insomnia 亮色。
 //! - **[`ThemeScheme::DshLight`]**：dsh 浅色（色值取自 dsh 设计 token 的 alias 层）。
 //!
 //! 切换靠 [`set_scheme`] 写全局「当前方案」，所有取色函数都从这里读 —— 与字号/行高
@@ -257,22 +259,135 @@ const LIGHT: Palette = Palette {
     m_other: ds::N_500,
 };
 
-/// 当前方案（原子量存枚举下标；缺省深色 = dsh 默认）。
+/// **Insomnia 暗色**：treq 最初的取色（参考截图逐点取色，1364×884）。
+///
+/// 面板 #2c2c2c · 编辑/响应区 #2a2a2a · 输入条与 tab 条 #212121 ·
+/// URL PREVIEW 盒 #313131 · 次要按钮 #3b3b3b · 品牌紫（Send）#8776d5 ·
+/// 2xx pill #75ba24 · 正文 #e0e0e0 / 次要 #999999 / 行号 #717171 ·
+/// JSON：键 #7ecf2b、字符串 #f0e137、数字 #e0e0e0、常量 #a594fb。
+const INSOMNIA_DARK: Palette = Palette {
+    // 背景
+    bg_base: 0x2c2c2c,       // 活动栏 / 侧栏 / 顶栏 / 状态栏
+    bg_chrome: 0x2c2c2c,     // Insomnia 的框就是面板色，不单独压深
+    bg_pane: 0x2a2a2a,       // 请求编辑区与响应区
+    bg_sunken: 0x212121,     // URL 输入行、tab 条
+    bg_field: 0x313131,      // URL PREVIEW、弹窗内代码框
+    bg_popup: 0x313131,      // 弹窗 / 菜单
+    bg_button: 0x3b3b3b,     // 次要按钮 / pill
+    bg_hover: 0x363636,
+    bg_selected: 0x3a3a3a,
+    bg_open: 0x3a3a3a,
+    bg_close_hover: 0xa33a3a,
+    bg_success: 0x75ba24,    // 2xx pill（配白字）
+    // 边框
+    border: 0x3a3a3a,
+    border_strong: 0x464646,
+    border_input: 0x3f3f3f,
+    // 文字
+    fg_dark: 0x717171,   // 行号 / 占位
+    fg_dim: 0x999999,    // 次要
+    fg_normal: 0xe0e0e0, // 正文
+    fg_bright: 0xf5f5f5,
+    fg_white: 0xffffff,
+    // 品牌 / 语义
+    primary: 0x8776d5, // 品牌紫：焦点、选中条、拖动条
+    accent: 0x8776d5,
+    accent_hi: 0x9a8be0,
+    accent_deep: 0x6a5cb5,
+    on_accent: 0xffffff,
+    blue: 0x6ca0f5,
+    green: 0x7ecf2b,
+    red: 0xe14b4b,
+    orange: 0xe0a33e,
+    // JSON
+    json_key: 0x7ecf2b,
+    json_string: 0xf0e137,
+    json_num: 0xe0e0e0,
+    json_const: 0xa594fb,
+    // 方法
+    m_get: 0xa594fb,
+    m_post: 0x7ecf2b,
+    m_put: 0xe0a33e,
+    m_patch: 0xf0e137,
+    m_delete: 0xe14b4b,
+    m_other: 0x6ca0f5,
+};
+
+/// **Insomnia 亮色**：同一个品牌紫，浅底上适配过的语法色（黄字在白底读不出来）。
+const INSOMNIA_LIGHT: Palette = Palette {
+    // 背景
+    bg_base: 0xffffff,
+    bg_chrome: 0xf7f7f7,
+    bg_pane: 0xfcfcfc,
+    bg_sunken: 0xf0f0f0,
+    bg_field: 0xf4f4f4,
+    bg_popup: 0xffffff,
+    bg_button: 0xf0f0f0,
+    bg_hover: 0xf2f2f2,
+    bg_selected: 0xeae6f8, // 选中带一点品牌紫
+    bg_open: 0xeae6f8,
+    bg_close_hover: 0xfdecec,
+    bg_success: 0x75ba24,
+    // 边框
+    border: 0x00000014,
+    border_strong: 0x00000024,
+    border_input: 0x00000029,
+    // 文字
+    fg_dark: 0xa0a0a0,   // 行号 / 占位
+    fg_dim: 0x6e6e6e,    // 次要
+    fg_normal: 0x2f2f2f, // 正文
+    fg_bright: 0x111111,
+    fg_white: 0xffffff,
+    // 品牌 / 语义
+    primary: 0x6a5cb5, // 焦点等小面积用深紫，白底更清楚
+    accent: 0x8776d5,  // 主按钮保持 Insomnia 品牌紫
+    accent_hi: 0x9a8be0,
+    accent_deep: 0x6a5cb5,
+    on_accent: 0xffffff,
+    blue: 0x2f6fd0,
+    green: 0x4f9a16,
+    red: 0xc0392b,
+    orange: 0xb87714,
+    // JSON（浅底适配：绿更暗、黄换成赭金）
+    json_key: 0x2f8a1f,
+    json_string: 0x9a6a00,
+    json_num: 0x2f2f2f,
+    json_const: 0x6a4bd0,
+    // 方法
+    m_get: 0x6a4bd0,
+    m_post: 0x2f8a1f,
+    m_put: 0xb87714,
+    m_patch: 0x8a6d00,
+    m_delete: 0xc0392b,
+    m_other: 0x2f6fd0,
+};
+
+/// 当前方案（原子量存枚举下标；0 = harbor 默认）。
+
 static SCHEME: AtomicU8 = AtomicU8::new(ThemeScheme::Harbor as u8);
 
 fn palette_of(s: ThemeScheme) -> &'static Palette {
     match s {
         ThemeScheme::Harbor => &HARBOR,
+        ThemeScheme::InsomniaDark => &INSOMNIA_DARK,
+        ThemeScheme::InsomniaLight => &INSOMNIA_LIGHT,
         ThemeScheme::DshLight => &LIGHT,
+    }
+}
+
+/// 枚举下标 ↔ 原子量（顺序必须和 [`ThemeScheme::ALL`] 一致）。
+fn scheme_from_index(i: u8) -> ThemeScheme {
+    match i {
+        1 => ThemeScheme::InsomniaDark,
+        2 => ThemeScheme::InsomniaLight,
+        3 => ThemeScheme::DshLight,
+        _ => ThemeScheme::Harbor,
     }
 }
 
 /// 当前配色方案。
 pub fn scheme() -> ThemeScheme {
-    match SCHEME.load(Ordering::Relaxed) {
-        1 => ThemeScheme::DshLight,
-        _ => ThemeScheme::Harbor,
-    }
+    scheme_from_index(SCHEME.load(Ordering::Relaxed))
 }
 
 /// 换配色方案（`AppModel` 启动时与配置页改动时调用）。下一帧所有取色即生效。
@@ -354,13 +469,15 @@ pub fn bg_close_hover() -> Rgba {
 pub fn bg_backdrop() -> Rgba {
     match scheme() {
         ThemeScheme::Harbor => rgba(0x05090fcc),
-        ThemeScheme::DshLight => rgba(0x00000066),
+        ThemeScheme::DshLight | ThemeScheme::InsomniaLight => rgba(0x00000066),
+        ThemeScheme::InsomniaDark => rgba(0x0a0a16cc),
     }
 }
 /// 文本选中高亮（强调色低透明）
 pub fn selection() -> Rgba {
     match scheme() {
         ThemeScheme::Harbor => rgba(0xef8b4a59),
+        ThemeScheme::InsomniaDark | ThemeScheme::InsomniaLight => rgba(0x8776d559),
         ThemeScheme::DshLight => rgba(0x3b82f659),
     }
 }
@@ -402,7 +519,8 @@ pub fn fg_white() -> Rgba {
 pub fn scroll_thumb() -> Rgba {
     match scheme() {
         ThemeScheme::Harbor => rgba(0xa8c4dd59),
-        ThemeScheme::DshLight => rgba(0x00000040),
+        ThemeScheme::InsomniaDark => rgba(0xffffff45),
+        ThemeScheme::DshLight | ThemeScheme::InsomniaLight => rgba(0x00000040),
     }
 }
 /// 主按钮上的文字（强调底上的字）
@@ -679,6 +797,33 @@ mod tests {
         assert!(luma(h.c(h.bg_base)) < luma(l.c(l.bg_base)));
         assert!(luma(h.c(h.fg_normal)) > luma(h.c(h.bg_base)));
         assert!(luma(l.c(l.fg_normal)) < luma(l.c(l.bg_base)));
+    }
+
+    #[test]
+    fn insomnia_dark_matches_the_original_treq_colors() {
+        let i = of(ThemeScheme::InsomniaDark);
+        // treq 最早的取色：面板 #2c2c2c、编辑区 #2a2a2a、品牌紫 #8776d5、JSON 键 #7ecf2b
+        assert_eq!(i.c(i.bg_base), rgb(0x2c2c2c));
+        assert_eq!(i.c(i.bg_pane), rgb(0x2a2a2a));
+        assert_eq!(i.c(i.bg_sunken), rgb(0x212121));
+        assert_eq!(i.c(i.accent), rgb(0x8776d5));
+        assert_eq!(i.c(i.primary), rgb(0x8776d5));
+        assert_eq!(i.c(i.json_key), rgb(0x7ecf2b));
+        assert_eq!(i.c(i.json_string), rgb(0xf0e137));
+        assert_eq!(i.c(i.json_const), rgb(0xa594fb));
+        assert_eq!(i.c(i.m_get), rgb(0xa594fb));
+        assert_eq!(i.c(i.m_post), rgb(0x7ecf2b));
+    }
+
+    #[test]
+    fn all_four_schemes_round_trip_through_the_atomic() {
+        let _guard = scheme_guard();
+        for (i, s) in ThemeScheme::ALL.into_iter().enumerate() {
+            set_scheme(s);
+            assert_eq!(scheme(), s, "第 {i} 个方案回读不一致");
+            assert_eq!(bg_base(), palette_of(s).c(palette_of(s).bg_base));
+        }
+        set_scheme(ThemeScheme::Harbor);
     }
 
     #[test]
