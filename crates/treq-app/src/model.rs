@@ -2526,7 +2526,7 @@ impl AppModel {
             .flex()
             .items_center()
             .justify_center()
-            .bg(theme::bg_base())
+            .bg(theme::bg_chrome())
             .border_b_1()
             .border_color(theme::border())
             .child(

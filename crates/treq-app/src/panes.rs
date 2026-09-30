@@ -86,7 +86,7 @@ impl AppModel {
             .items_center()
             .px(theme::sp4())
             .gap(theme::sp3())
-            .bg(theme::bg_base())
+            .bg(theme::bg_chrome())
             .border_t_1()
             .border_color(theme::border())
             .child(widgets::link(

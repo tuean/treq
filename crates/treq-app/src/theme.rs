@@ -45,7 +45,8 @@ mod nu {
 /// **harbor** 专用色阶：暮光蓝港的蓝 + 日落橙辉的橙（黄昏海港取色）。
 mod harbor {
     // 暮光蓝港：锚点是深海靛蓝 #141829（夜色面板的基色），往上逐级提亮
-    pub const NIGHT: u32 = 0x0e111c; // 入夜海面（比面板更深一档）
+    pub const CHROME: u32 = 0x0f111d; // 菜单栏 / 顶栏 / 状态栏（整圈外框，最深）
+    pub const NIGHT: u32 = 0x0e111c; // 入夜海面（下沉条 / tab 条）
     pub const DEEP: u32 = 0x111524; // 深水（下沉条）
     pub const PANEL: u32 = 0x141829; // 深海靛蓝 —— 主面板基色（锚点）
     pub const HARBOR: u32 = 0x1b2138; // 港湾蓝（浮起面 / 按钮）
@@ -94,6 +95,7 @@ mod hue {
 struct Palette {
     // 背景
     bg_base: u32,       // alias-bg-base：应用底色
+    bg_chrome: u32,     // 菜单栏 / 顶栏 / 状态栏这一圈「框」的底色
     bg_pane: u32,       // bg-layer-1：编辑区 / 响应区
     bg_sunken: u32,     // bg-module-platform：下沉条（URL 行、tab 条）
     bg_field: u32,      // bg-document-preview：内嵌盒
@@ -161,6 +163,7 @@ impl Palette {
 const HARBOR: Palette = Palette {
     // 背景：**主面不透明**，色号所见即所得（锚点 #141829）；毛玻璃只留给浮起面
     bg_base: harbor::PANEL,      // 应用底：深海靛蓝 #141829
+    bg_chrome: harbor::CHROME,   // 菜单栏 / 顶栏 / 状态栏：#0F111D
     bg_pane: harbor::PANEL,      // 编辑区 / 响应区：同一块面板
     bg_sunken: harbor::NIGHT,    // 下沉条（URL 行 / tab 条）比面板深一档
     bg_field: harbor::DEEP,      // 内嵌盒
@@ -209,6 +212,7 @@ const HARBOR: Palette = Palette {
 const LIGHT: Palette = Palette {
     // 背景：base 是白，下沉条/内嵌盒用极浅冷灰
     bg_base: 0xffffff,
+    bg_chrome: nu::N_100,
     bg_pane: 0xffffff,
     bg_sunken: nb::N_50,
     bg_field: nb::N_75,
@@ -285,6 +289,10 @@ fn p() -> &'static Palette {
 /// 应用底色：活动栏 / 侧栏 / 顶栏 / 状态栏
 pub fn bg_base() -> Rgba {
     p().c(p().bg_base)
+}
+/// 菜单栏 / 顶栏 / 状态栏这一圈「框」的底色
+pub fn bg_chrome() -> Rgba {
+    p().c(p().bg_chrome)
 }
 /// 请求编辑区与响应区
 pub fn bg_pane() -> Rgba {
@@ -697,6 +705,18 @@ mod tests {
         // 强调是日落橙：红通道最大
         let acc = h.c(h.accent);
         assert!(acc.r > acc.g && acc.g > acc.b, "accent 应当是日落橙");
+        // 菜单栏 / 顶栏 / 状态栏 = #0F111D，且比主面板更深，形成外框层次
+        let chrome = h.c(h.bg_chrome);
+        let (cr, cg, cb) = (
+            (chrome.r * 255.).round() as u32,
+            (chrome.g * 255.).round() as u32,
+            (chrome.b * 255.).round() as u32,
+        );
+        assert!(
+            d(cr, 0x0f) <= 4 && d(cg, 0x11) <= 4 && d(cb, 0x1d) <= 4,
+            "菜单栏底应当是 #0F111D，实际 #{cr:02x}{cg:02x}{cb:02x}"
+        );
+        assert!(luma(chrome) < luma(panel), "菜单栏应当比主面板更深");
         // 主面板不透明（色号所见即所得），毛玻璃只留给浮起面
         assert_eq!(h.c(h.bg_pane).a, 1.0, "主面板应当是不透明实色");
         assert!(h.c(h.bg_popup).a < 1.0, "浮层应当带 alpha（夜色玻璃）");
