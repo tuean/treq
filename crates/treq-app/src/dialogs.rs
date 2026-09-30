@@ -2,7 +2,7 @@
 
 use crate::i18n::Locale;
 use crate::model::{AppModel, SettingsTab, VarSource};
-use crate::settings::DropdownStyle;
+use crate::settings::{DropdownStyle, ThemeScheme};
 use crate::theme;
 use crate::widgets::{self};
 use gpui::{prelude::*, *};
@@ -14,6 +14,34 @@ fn setting_label(text: &str) -> impl IntoElement {
         .text_size(px(theme::font_small()))
         .text_color(theme::fg_dim())
         .child(SharedString::from(text.to_string()))
+}
+
+/// 配色预览色块（配色方案那几行的左侧小样）：底色 + 品牌色 + 正文色。
+fn theme_swatch(scheme: ThemeScheme) -> impl IntoElement {
+    // 取色函数读的是「全局当前方案」，所以先记下来再临时切过去取样，最后切回
+    let current = theme::scheme();
+    theme::set_scheme(scheme);
+    let (bg, accent, fg, key) = (
+        theme::bg_pane(),
+        theme::bg_accent(),
+        theme::fg_normal(),
+        theme::json_key(),
+    );
+    theme::set_scheme(current);
+    div()
+        .flex_none()
+        .size(px(26.))
+        .rounded(px(3.))
+        .bg(bg)
+        .border_1()
+        .border_color(theme::border_strong())
+        .flex()
+        .items_center()
+        .justify_center()
+        .gap(px(2.))
+        .child(div().w(px(5.)).h(px(12.)).rounded(px(1.)).bg(fg))
+        .child(div().w(px(5.)).h(px(12.)).rounded(px(1.)).bg(accent))
+        .child(div().w(px(5.)).h(px(12.)).rounded(px(1.)).bg(key))
 }
 
 /// 配置页一行字体设置：左标签 + 定宽输入框。
@@ -1042,6 +1070,64 @@ impl AppModel {
                     .text_color(theme::fg_dark())
                     .child(self.t("settings.style.hint")),
             );
+
+        // 配色方案：dsh 深/浅（色值取自 dsh 的设计 token），点选即生效
+        let current_scheme = theme::scheme();
+        body = body.child(
+            div()
+                .pb(theme::sp3())
+                .flex()
+                .flex_col()
+                .gap(theme::sp1())
+                .child(
+                    div()
+                        .pb(theme::sp2())
+                        .text_size(px(theme::font_small()))
+                        .text_color(theme::fg_dark())
+                        .child(self.t("settings.theme.hint")),
+                ),
+        );
+        for s in ThemeScheme::ALL {
+            let selected = s == current_scheme;
+            body = body.child(
+                div()
+                    .id(SharedString::from(format!("theme-row-{}", s.label_key())))
+                    .flex()
+                    .items_center()
+                    .gap(theme::sp4())
+                    .px(theme::sp3())
+                    .h(px(40.))
+                    .rounded(px(3.))
+                    .cursor_pointer()
+                    .hover(|d| d.bg(theme::bg_hover()))
+                    .child(radio_dot(selected))
+                    .child(theme_swatch(s))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .child(
+                                div()
+                                    .text_size(px(theme::font_body()))
+                                    .text_color(theme::fg_normal())
+                                    .child(self.t(s.label_key())),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(theme::font_small()))
+                                    .text_color(theme::fg_dark())
+                                    .child(self.t(s.desc_key())),
+                            ),
+                    )
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, _, _w, cx| this.set_theme_scheme(s, cx)),
+                    ),
+            );
+        }
+        body = body.child(div().pb(theme::sp3()));
         for style in DropdownStyle::ALL {
             body = body.child(
                 div()

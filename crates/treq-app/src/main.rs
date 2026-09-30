@@ -92,6 +92,8 @@ fn open_main_window(cx: &mut App, reuse: Option<Entity<AppModel>>) -> Entity<App
         .open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
+                // 毛玻璃：harbor 配色的面板带 alpha，靠它透出桌面底色（浅色方案不受影响）
+                window_background: WindowBackgroundAppearance::Blurred,
                 titlebar: Some(TitlebarOptions {
                     title: Some("treq".into()),
                     ..Default::default()

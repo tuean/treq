@@ -71,6 +71,40 @@ impl DropdownStyle {
     }
 }
 
+/// 配色方案（「外观」设置里可切换）。
+///
+/// - `Harbor`：**暮光蓝港 · 日落橙辉 · 半透明夜色面板**（默认）。色阶底子是 dsh 的
+///   alias 层，面板带 alpha（配合窗口毛玻璃透出底色），强调色换成日落橙。
+/// - `DshLight`：dsh 浅色（色值取自 dsh 设计 token 的 alias 层）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum ThemeScheme {
+    #[serde(rename = "harbor")]
+    #[default]
+    Harbor,
+    #[serde(rename = "dsh-light")]
+    DshLight,
+}
+
+impl ThemeScheme {
+    pub const ALL: [ThemeScheme; 2] = [ThemeScheme::Harbor, ThemeScheme::DshLight];
+
+    /// i18n 键：方案名
+    pub fn label_key(self) -> &'static str {
+        match self {
+            ThemeScheme::Harbor => "theme.harbor",
+            ThemeScheme::DshLight => "theme.dsh_light",
+        }
+    }
+
+    /// i18n 键：一行说明
+    pub fn desc_key(self) -> &'static str {
+        match self {
+            ThemeScheme::Harbor => "theme.harbor.desc",
+            ThemeScheme::DshLight => "theme.dsh_light.desc",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
     pub workspace_root: PathBuf,
@@ -115,6 +149,9 @@ pub struct Settings {
     /// 下拉框样式（None/缺省 = outlined）
     #[serde(default)]
     pub dropdown_style: DropdownStyle,
+    /// 配色方案（None/缺省 = harbor 暮光蓝港）
+    #[serde(default)]
+    pub theme_scheme: ThemeScheme,
     /// 界面字体家族（空 = 系统默认字体）
     #[serde(default)]
     pub font_ui: Option<String>,
@@ -230,6 +267,7 @@ impl Default for Settings {
             proxy: None,
             timeout_sec: None,
             dropdown_style: DropdownStyle::Outlined,
+            theme_scheme: ThemeScheme::Harbor,
         }
     }
 }

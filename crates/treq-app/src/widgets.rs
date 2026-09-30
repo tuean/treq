@@ -13,7 +13,7 @@ use gpui::{
     ListState, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point,
     Rgba, ScrollHandle, ShapedLine, SharedString, Stateful, Style, Svg, Task, TextRun,
     Transformation, UTF16Selection, UnderlineStyle, WeakEntity, Window, actions, div, fill, point,
-    prelude::*, px, radians, relative, rgb, rgba, size, svg,
+    prelude::*, px, radians, relative, rgba, size, svg,
 };
 use std::rc::Rc;
 use unicode_segmentation::*;
@@ -1907,7 +1907,7 @@ pub fn dropdown(
             .px(theme::sp3())
             .gap(theme::sp3())
             .bg(if open {
-                rgb(0x262626)
+                theme::bg_open()
             } else {
                 theme::bg_sunken()
             })

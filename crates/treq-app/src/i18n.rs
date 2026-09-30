@@ -573,6 +573,15 @@ pub fn tr(locale: Locale, key: &str) -> &'static str {
         (Locale::Zh, "settings.style.hint") => {
             "下拉框样式：点行选中即生效并记入配置；点“样例”可看这一款的打开态"
         }
+        (Locale::Zh, "settings.theme.hint") => {
+            "配色方案：色值取自 dsh 的设计 token（static 色阶 + alias 别名层），点一行即生效"
+        }
+        (Locale::Zh, "theme.harbor") => "harbor 暮光蓝港",
+        (Locale::Zh, "theme.harbor.desc") => {
+            "暮光蓝港 · 日落橙辉 · 半透明夜色面板（默认）"
+        }
+        (Locale::Zh, "theme.dsh_light") => "dsh 浅色",
+        (Locale::Zh, "theme.dsh_light.desc") => "跟随 dsh 浅色：白底深字，亮环境/投屏更清楚",
         (Locale::Zh, "settings.general.language") => "语言",
         (Locale::Zh, "settings.general.workspace") => "工作区",
         (Locale::Zh, "settings.general.choose_dir") => "选择目录…",
@@ -606,6 +615,15 @@ pub fn tr(locale: Locale, key: &str) -> &'static str {
         (Locale::En, "settings.style.hint") => {
             "Dropdown style — click a row to apply; click a sample to preview its open state"
         }
+        (Locale::En, "settings.theme.hint") => {
+            "Color scheme — values come from the dsh design tokens (static scale + alias layer); click a row to apply"
+        }
+        (Locale::En, "theme.harbor") => "harbor Twilight Harbor",
+        (Locale::En, "theme.harbor.desc") => {
+            "Twilight-blue harbor · sunset-orange glow · translucent night panels (default)"
+        }
+        (Locale::En, "theme.dsh_light") => "dsh Light",
+        (Locale::En, "theme.dsh_light.desc") => "dsh light: dark text on white, clearer in bright rooms",
         (Locale::En, "settings.general.language") => "Language",
         (Locale::En, "settings.general.workspace") => "Workspace",
         (Locale::En, "settings.general.choose_dir") => "Choose folder…",

@@ -918,6 +918,14 @@ impl AppModel {
         };
         // 内容行高是全应用共享的显示常量（正文/JSON/表格都读它）
         theme::set_line_h(settings::editor_line_h(&m.settings));
+        // 配色方案（harbor / dsh 浅色）同样是全局显示状态，启动先按配置定下来；
+        // 环境变量 TREQ_SCHEME=harbor|dsh-light 可临时覆盖（截图/自动化用，不落盘）
+        let scheme = match std::env::var("TREQ_SCHEME").as_deref() {
+            Ok("dsh-light") | Ok("light") => crate::settings::ThemeScheme::DshLight,
+            Ok("harbor") | Ok("dark") => crate::settings::ThemeScheme::Harbor,
+            _ => m.settings.theme_scheme,
+        };
+        theme::set_scheme(scheme);
         theme::set_fonts(
             &settings::font_ui(&m.settings),
             settings::font_ui_size(&m.settings),
@@ -1284,6 +1292,20 @@ impl AppModel {
     pub fn set_locale(&mut self, l: Locale, cx: &mut Context<Self>) {
         self.settings.locale = l.as_str().into();
         settings::save(&self.settings).ok();
+        cx.notify();
+    }
+
+    /// 换配色方案（设置页「外观」）：写全局 + 落盘，再整窗重绘。
+    pub fn set_theme_scheme(
+        &mut self,
+        scheme: crate::settings::ThemeScheme,
+        cx: &mut Context<Self>,
+    ) {
+        if self.settings.theme_scheme != scheme {
+            self.settings.theme_scheme = scheme;
+            settings::save(&self.settings).ok();
+        }
+        crate::theme::set_scheme(scheme);
         cx.notify();
     }
 
