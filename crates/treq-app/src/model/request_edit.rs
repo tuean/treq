@@ -183,6 +183,7 @@ impl AppModel {
 
     /// Delete All：清空当前表（Insomnia 的 Delete All）。
     pub fn kv_clear(&mut self, which: KvWhich, cx: &mut Context<Self>) {
+        let op = self.kv_clear_snapshot(which);
         self.update_selected_request(
             |r| match which {
                 KvWhich::Params => r.params.clear(),
@@ -191,9 +192,38 @@ impl AppModel {
             },
             cx,
         );
+        if let Some(op) = op {
+            self.push_undo(op);
+        }
         self.rebuild_kv_fields(cx);
     }
 
+
+    /// 清空前的整表快照（空表就没必要记）。
+    fn kv_clear_snapshot(&self, which: KvWhich) -> Option<UndoOp> {
+        let r = self.selected_request()?;
+        let req_id = r.id.clone();
+        match which {
+            KvWhich::Params if r.params.len() > 0 => Some(UndoOp::KvRestore {
+                req_id,
+                which,
+                index: 0,
+                rows: r.params.clone(),
+            }),
+            KvWhich::Headers if r.headers.len() > 0 => Some(UndoOp::KvRestore {
+                req_id,
+                which,
+                index: 0,
+                rows: r.headers.clone(),
+            }),
+            KvWhich::FormData if r.body.form_data.len() > 0 => Some(UndoOp::FormRestore {
+                req_id,
+                index: 0,
+                rows: r.body.form_data.clone(),
+            }),
+            _ => None,
+        }
+    }
     // ---- Docs 页 ----
     // ---- 认证 ----
     /// 当前请求是不是已经手写了 Authorization 头（认证设置不会覆盖它）。
@@ -410,6 +440,42 @@ impl AppModel {
         {
             f.update(cx, |f, _| f.line_height = Some(lh));
         }
+        cx.notify();
+    }
+
+    /// 设置页的「候选浮层缩放」输入框：手动输入倍数，0.8~2.0。
+    pub(crate) fn suggest_scale_field(&mut self, cx: &mut Context<Self>) -> Entity<TextField> {
+        if let Some(f) = &self.suggest_scale_field {
+            return f.clone();
+        }
+        let cur = crate::settings::suggest_scale(&self.settings).to_string();
+        let handle = cx.entity();
+        let f = TextField::new(
+            cur.into(),
+            SharedString::from("1.0"),
+            Arc::new(move |s, app| {
+                handle.update(app, |this, cx| this.apply_suggest_scale(s, cx));
+            }),
+            cx,
+        );
+        self.suggest_scale_field = Some(f.clone());
+        f
+    }
+
+    /// 缩放改成多少：非数字忽略，合法值夹到 0.8~2.0 立刻生效并落盘。
+    pub fn apply_suggest_scale(&mut self, raw: &str, cx: &mut Context<Self>) {
+        let Ok(v) = raw.trim().parse::<f32>() else {
+            return;
+        };
+        if !v.is_finite() {
+            return;
+        }
+        let v = v.clamp(0.8, 2.0);
+        if crate::settings::suggest_scale(&self.settings) == v {
+            return;
+        }
+        self.settings.suggest_scale = Some(v);
+        settings::save(&self.settings).ok();
         cx.notify();
     }
 }

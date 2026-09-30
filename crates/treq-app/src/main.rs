@@ -153,6 +153,8 @@ fn main() {
             KeyBinding::new("up", QuickUp, None),
             KeyBinding::new("down", QuickDown, None),
         ]);
+        // 输入框的补全浮层按键要晚于全局 up/down 注册，否则 ↑↓ 会被命令面板抢走
+        widgets::bind_textfield_overlay_keys(cx);
         cx.activate(true);
 
         // 原生菜单栏（标签固定英文，应用内文案走 i18n）

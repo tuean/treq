@@ -11,6 +11,7 @@ pub mod legacy_import;
 pub mod models;
 pub mod regroup;
 pub mod store;
+pub mod suggest;
 pub mod trash;
 pub mod vars;
 

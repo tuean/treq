@@ -118,14 +118,15 @@ impl AppModel {
             return Vec::new();
         };
         let count = self.rows.len();
-        let first = g.row_at(g.view_top).unwrap_or(0).min(count.saturating_sub(1));
+        let first = g
+            .row_at(g.view_top)
+            .unwrap_or(0)
+            .min(count.saturating_sub(1));
         let last = g
             .row_at(g.view_top + g.view_h)
             .unwrap_or(first)
             .min(count.saturating_sub(1));
-        (first..=last)
-            .map(|ix| (ix, g.rect_of(ix)))
-            .collect()
+        (first..=last).map(|ix| (ix, g.rect_of(ix))).collect()
     }
 
     /// 指针下面是哪一行、落在这一行的哪个位置。
@@ -168,7 +169,11 @@ impl AppModel {
                     }
                 }
             };
-            return Some(DropTarget { at: row.at, zone, rect });
+            return Some(DropTarget {
+                at: row.at,
+                zone,
+                rect,
+            });
         }
     }
 
@@ -221,11 +226,7 @@ impl AppModel {
             return Vec::new();
         };
         let list = match group {
-            Some(gid) => col
-                .groups
-                .iter()
-                .find(|g| g.id == gid)
-                .map(|g| &g.requests),
+            Some(gid) => col.groups.iter().find(|g| g.id == gid).map(|g| &g.requests),
             None => Some(&col.requests),
         };
         list.map(|rs| rs.iter().map(|r| r.id.clone()).collect())
@@ -310,7 +311,10 @@ impl TreeGeom {
     /// 行 i 的屏幕矩形。
     pub(crate) fn rect_of(&self, ix: usize) -> Bounds<Pixels> {
         Bounds {
-            origin: gpui::point(px(0.), px(self.view_top + self.off_y + ix as f32 * self.row_h)),
+            origin: gpui::point(
+                px(0.),
+                px(self.view_top + self.off_y + ix as f32 * self.row_h),
+            ),
             size: gpui::size(px(1.), px(self.row_h)),
         }
     }
@@ -373,15 +377,27 @@ mod tests {
     #[test]
     fn row_kind_from_position() {
         assert_eq!(
-            row_kind(RowRef { col: 0, grp: None, req: None }),
+            row_kind(RowRef {
+                col: 0,
+                grp: None,
+                req: None
+            }),
             RowKind::Collection
         );
         assert_eq!(
-            row_kind(RowRef { col: 0, grp: Some(1), req: None }),
+            row_kind(RowRef {
+                col: 0,
+                grp: Some(1),
+                req: None
+            }),
             RowKind::Group
         );
         assert_eq!(
-            row_kind(RowRef { col: 0, grp: Some(1), req: Some(2) }),
+            row_kind(RowRef {
+                col: 0,
+                grp: Some(1),
+                req: Some(2)
+            }),
             RowKind::Request
         );
     }

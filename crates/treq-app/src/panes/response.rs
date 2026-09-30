@@ -322,11 +322,14 @@ impl AppModel {
                     if json {
                         // 行号 / 折叠都按「折叠前的原始行」来，折了也认得出是第几行
                         let orig = this.resp_visible_idx.get(ix).copied().unwrap_or(ix);
-                        let foldable = matches!(
-                            this.resp_fold_ends.get(orig),
-                            Some(Some(end)) if *end > orig
-                        );
+                        let fold_end = this.resp_fold_ends.get(orig).copied().flatten();
+                        let foldable = matches!(fold_end, Some(end) if end > orig);
                         let folded = foldable && this.resp_folded.contains(&orig);
+                        // 折起来时跟一句摘要：数组给个数、对象给键数（数不出来就只留 `…`）
+                        let collapsed = folded.then(|| {
+                            this.fold_summary_for(orig)
+                                .unwrap_or_else(|| "…".to_string())
+                        });
                         let arrow = if foldable {
                             let on_click = cx.listener(
                                 move |this: &mut AppModel,
@@ -354,18 +357,18 @@ impl AppModel {
                         crate::jsonview::apply_selection(&mut runs, sel, theme::selection());
                         let body = resp_interactive(line.clone(), ix, runs, cx).into_any();
                         let time = sse_time_for(&this.sse_marks, this.sse_show_time, orig);
-                        let mut row = json_line(time, orig + 1, arrow, folded, body)
+                        let mut row = json_line(time, orig + 1, arrow, collapsed, body)
                             .on_mouse_down(
-                                MouseButton::Right,
-                                cx.listener(
-                                    move |this: &mut AppModel,
-                                          e: &MouseDownEvent,
-                                          _w: &mut Window,
-                                          cx: &mut Context<AppModel>| {
-                                        this.open_resp_line_menu(orig, e.position, cx);
-                                    },
-                                ),
-                            );
+                            MouseButton::Right,
+                            cx.listener(
+                                move |this: &mut AppModel,
+                                      e: &MouseDownEvent,
+                                      _w: &mut Window,
+                                      cx: &mut Context<AppModel>| {
+                                    this.open_resp_line_menu(orig, e.position, cx);
+                                },
+                            ),
+                        );
                         // 选中：左键按下定起点，拖动中更新终点（列由 hover 报上来）
                         row = row
                             .on_mouse_down(
@@ -457,7 +460,10 @@ impl AppModel {
             // 点正文拿焦点后，⌘C 才是「复制选中文本」；没选中就不拦截，让别的处理者去
             .track_focus(&focus)
             .on_key_down(cx.listener(
-                |this: &mut AppModel, e: &KeyDownEvent, _w: &mut Window, cx: &mut Context<AppModel>| {
+                |this: &mut AppModel,
+                 e: &KeyDownEvent,
+                 _w: &mut Window,
+                 cx: &mut Context<AppModel>| {
                     if e.keystroke.key == "c" && e.keystroke.modifiers.platform {
                         this.resp_copy_shortcut(cx);
                     }

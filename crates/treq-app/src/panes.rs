@@ -300,11 +300,12 @@ fn gutter(n: usize) -> impl IntoElement {
 
 /// 一行 JSON 的行壳（行号 + 折叠箭头 + 正文元素）。
 /// 正文元素由调用方给：正文既要着色又要能鼠标选中，需要 resp_sel 的上下文。
+/// `collapsed` 是折起来后在行尾补的摘要（`… 12 项`），`None` 表示这行没折。
 fn json_line(
     time: Option<&str>,
     n: usize,
     arrow: AnyElement,
-    folded: bool,
+    collapsed: Option<String>,
     body: AnyElement,
 ) -> Div {
     div()
@@ -322,12 +323,12 @@ fn json_line(
                 .flex_1()
                 .min_w_0()
                 .child(body)
-                // 折起来的那段用省略号示意（点行首 ▸ 展开）
-                .when(folded, |d| {
+                // 折起来的那段用省略号示意（点行首 ▸ 展开）；能数出项数就顺带报个数
+                .when_some(collapsed, |d, summary| {
                     d.child(
                         div()
                             .text_color(theme::fg_dark())
-                            .child(SharedString::from("…")),
+                            .child(SharedString::from(summary)),
                     )
                 }),
         )
@@ -423,6 +424,15 @@ pub(crate) fn apply_snapshot(dst: &mut RequestItem, src: &RequestItem) {
     dst.description = src.description.clone();
 }
 
+/// 历史还原用：套用快照（方法/URL/参数/头/正文），但保留现场的 DOCS 说明。
+/// `description` 是写给这个请求的备注、不参与发送，快照里那份通常是空的/过时的；
+/// 连它一起覆盖会把用户刚写的内容直接顶掉（还会落盘），所以留一条不改它的路径。
+pub(crate) fn apply_snapshot_keep_docs(dst: &mut RequestItem, src: &RequestItem) {
+    let docs = std::mem::take(&mut dst.description);
+    apply_snapshot(dst, src);
+    dst.description = docs;
+}
+
 /// 命令面板用：URL 中段截断为 …。
 pub(crate) fn truncate_url(url: &str, max: usize) -> String {
     let chars: Vec<char> = url.chars().collect();
@@ -466,12 +476,49 @@ mod tests {
 
     #[test]
     fn time_column_only_fills_the_first_line_of_each_event() {
-        let marks = vec![(0usize, "10:00:00.000".to_string()), (3, "10:00:01.500".to_string())];
+        let marks = vec![
+            (0usize, "10:00:00.000".to_string()),
+            (3, "10:00:01.500".to_string()),
+        ];
         assert_eq!(sse_time_for(&marks, true, 0), Some("10:00:00.000"));
         assert_eq!(sse_time_for(&marks, true, 3), Some("10:00:01.500"));
         assert_eq!(sse_time_for(&marks, true, 1), Some(""), "中间行留白占位");
         assert_eq!(sse_time_for(&marks, true, 99), Some(""));
         assert_eq!(sse_time_for(&marks, false, 0), None, "开关关掉不显示时间列");
         assert_eq!(sse_time_for(&[], true, 0), None, "不是事件流就没有时间列");
+    }
+
+    #[test]
+    fn history_restore_keeps_the_docs_text() {
+        use super::{apply_snapshot, apply_snapshot_keep_docs};
+        use treq_core::{Body, RequestItem};
+
+        fn req(docs: &str, url: &str) -> RequestItem {
+            RequestItem {
+                id: "r1".into(),
+                name: "r1".into(),
+                method: "POST".into(),
+                url: url.into(),
+                params: vec![],
+                headers: vec![],
+                body: Body::default(),
+                description: docs.into(),
+                docs_open: true,
+                auth: None,
+                order: None,
+            }
+        }
+
+        let snap = req("", "https://old.example/send");
+        // 老的 apply_snapshot 会把说明一起盖掉（这就是「点历史 docs 被重置」的根因）
+        let mut plain = req("写了一半的说明", "https://live");
+        apply_snapshot(&mut plain, &snap);
+        assert_eq!(plain.description, "", "确认旧行为确实会清掉 docs");
+
+        // 新路径：发出去的东西还原，说明文字留下
+        let mut live = req("写了一半的说明", "https://live");
+        apply_snapshot_keep_docs(&mut live, &snap);
+        assert_eq!(live.url, "https://old.example/send", "URL 要还原成历史那次");
+        assert_eq!(live.description, "写了一半的说明", "docs 不能被快照顶掉");
     }
 }

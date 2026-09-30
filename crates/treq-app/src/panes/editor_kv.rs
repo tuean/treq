@@ -178,11 +178,17 @@ impl AppModel {
                     }
                     BodyKind::Json => {
                         let body_field = self.fields.body.clone().expect("body field ensured");
+                        // 正文框自己滚 → 登记常显竖滚动条（和 docs 一样）
+                        let bar = body_field.read(cx).scroll.clone();
+                        self.track_scrollbar("body-field", &bar);
                         content = content.child(self.json_body_box(body_field, cx));
                     }
                     _ => {
                         let body_field = self.fields.body.clone().expect("body field ensured");
                         // 行高由输入框自己的 line_height 决定（设置 → 外观）
+                        // 正文框撑满内容区剩余高度（内部滚动 + 常显竖滚动条）
+                        let bar = body_field.read(cx).scroll.clone();
+                        self.track_scrollbar("body-field", &bar);
                         content = content.child(body_field);
                     }
                 }
@@ -216,8 +222,14 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let mut box_el = div()
+            .id("json-body-box")
             .relative()
+            // .flex() 才是 flex 容器（gpui 的 div 默认 display:block）：
+            // 少了它，输入框的 flex_1/h_full 不生效，撑不满内容区
+            .flex()
             .flex_col()
+            .flex_1()
+            .min_h_0()
             .child(field)
             .child(
                 div()
@@ -293,11 +305,7 @@ impl AppModel {
         field: Entity<TextField>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let mut cell = div()
-            .flex_1()
-            .min_w_0()
-            .relative()
-            .child(underline(field));
+        let mut cell = div().flex_1().min_w_0().relative().child(underline(field));
         if value.chars().count() > KV_INLINE_MAX_CHARS {
             let which_label = self.t(match which {
                 KvWhich::Params => "editor.tab.query",
@@ -378,8 +386,22 @@ impl AppModel {
                                 },
                             )
                         })
-                        .child(div().flex_1().min_w_0().overflow_hidden().child(underline(key_field)))
-                        .child(self.value_cell(which, i, &kv.key, &kv.value, &prefix_val, val_field, cx))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .overflow_hidden()
+                                .child(underline(key_field)),
+                        )
+                        .child(self.value_cell(
+                            which,
+                            i,
+                            &kv.key,
+                            &kv.value,
+                            &prefix_val,
+                            val_field,
+                            cx,
+                        ))
                         .child({
                             let id = format!("kv/{}/{}", kv_prefix(which), i);
                             let w = which;
@@ -633,7 +655,8 @@ impl AppModel {
                         .flex()
                         .flex_col()
                         .py(theme::sp2())
-                        .overflow_scroll().track_scroll(&bar_resp_history);
+                        .overflow_scroll()
+                        .track_scroll(&bar_resp_history);
                     let now = treq_core::now_millis();
                     let entries = self.history.clone();
                     for h in &entries {
@@ -667,7 +690,8 @@ impl AppModel {
                         .flex_col()
                         .px(theme::sp4())
                         .py(theme::sp2())
-                        .overflow_scroll().track_scroll(&bar_resp_headers);
+                        .overflow_scroll()
+                        .track_scroll(&bar_resp_headers);
                     for (k, v) in &resp.headers {
                         list = list.child(
                             div()
@@ -719,7 +743,8 @@ impl AppModel {
                         .flex_col()
                         .px(theme::sp4())
                         .py(theme::sp2())
-                        .overflow_scroll().track_scroll(&bar_resp_cookies);
+                        .overflow_scroll()
+                        .track_scroll(&bar_resp_cookies);
                     let now = treq_core::cookies::now_unix();
                     for c in cookies {
                         let (name, value, attrs) = (c.name.clone(), c.value.clone(), c.attrs(now));
@@ -774,7 +799,8 @@ impl AppModel {
                             .gap(theme::sp3())
                             .px(theme::sp4())
                             .py(theme::sp3())
-                            .overflow_scroll().track_scroll(&bar_resp_timeline);
+                            .overflow_scroll()
+                            .track_scroll(&bar_resp_timeline);
                         list = list
                             .child(widgets::section_label(self.t("response.timeline.total")))
                             .child(

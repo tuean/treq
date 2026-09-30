@@ -1111,6 +1111,24 @@ impl AppModel {
                 ),
         );
 
+        // 补全候选浮层缩放：历史/现有 key·value 候选窗口的整体大小
+        let scale_field = self.suggest_scale_field(cx);
+        body = body.child(
+            div()
+                .pt(theme::sp4())
+                .flex()
+                .flex_col()
+                .gap(theme::sp2())
+                .child(setting_label(self.t("settings.suggest_scale")))
+                .child(div().w(px(90.)).child(scale_field))
+                .child(
+                    div()
+                        .text_size(px(theme::font_small()))
+                        .text_color(theme::fg_dark())
+                        .child(self.t("settings.suggest_scale.hint")),
+                ),
+        );
+
         // 字体：界面与代码分开配，家族留空＝系统默认，改完立即生效
         use crate::model::FontField;
         let (ui_lo, ui_hi) = AppModel::FONT_UI_RANGE;

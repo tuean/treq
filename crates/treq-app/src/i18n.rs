@@ -115,6 +115,9 @@ pub fn tr(locale: Locale, key: &str) -> &'static str {
         (Locale::Zh, "settings.font.hint") => "字体家族留空＝系统默认；界面字号 / 代码字号范围",
         (Locale::Zh, "settings.editor_line_h") => "内容行高（px）",
         (Locale::Zh, "settings.editor_line_h.hint") => "只作用于 JSON/正文内容：请求体 JSON、Docs、响应正文、响应头与 Cookies/Timeline 列表；Query/Headers 等表格组件高度固定，不受影响。范围 12–32，改完立刻生效",
+        (Locale::Zh, "settings.suggest_scale") => "候选浮层缩放（倍）",
+        (Locale::Zh, "settings.suggest_scale.hint") => "只影响输入框的历史/现有 key·value 候选浮层：行高、宽度、字号一起缩放。范围 0.8–2.0，默认 1.0，改完立刻生效",
+        (Locale::Zh, "undo.done") => "已撤销上一步删除",
         (Locale::Zh, "editor.tab.headers") => "Headers",
         (Locale::Zh, "editor.tab.body") => "Body",
         (Locale::Zh, "editor.tab.none") => "无",
@@ -219,6 +222,10 @@ pub fn tr(locale: Locale, key: &str) -> &'static str {
         (Locale::En, "response.fold_all") => "Fold all",
         (Locale::Zh, "response.unfold_all") => "展开全部",
         (Locale::En, "response.unfold_all") => "Expand all",
+        (Locale::Zh, "response.fold_items") => "项",
+        (Locale::En, "response.fold_items") => "items",
+        (Locale::Zh, "response.fold_keys") => "个键",
+        (Locale::En, "response.fold_keys") => "keys",
         (Locale::Zh, "flash.no_response") => "还没有响应可以过滤：先发一次请求",
         (Locale::En, "flash.no_response") => "No response to filter yet — send a request first",
         (Locale::Zh, "flash.copied_url") => "已复制 URL：",
@@ -320,6 +327,7 @@ pub fn tr(locale: Locale, key: &str) -> &'static str {
         (Locale::En, "vars.no_response") => "No response yet",
         (Locale::En, "vars.save_empty") => "Nothing to save",
         (Locale::Zh, "vars.complete_hint") => "Tab / Enter 补齐 · Esc 关闭",
+        (Locale::Zh, "kv.complete_hint") => "Tab / Enter 补全 · 候选来自历史与现有请求",
         (Locale::Zh, "vars.title") => "变量",
         (Locale::Zh, "vars.hint") => {
             "发送时把 {{ 变量 }} 换成这里的值；点「补进环境」可把缺失的补上。"
@@ -443,6 +451,9 @@ pub fn tr(locale: Locale, key: &str) -> &'static str {
         (Locale::En, "settings.font.hint") => "Empty family = system default. Size ranges (UI / code)",
         (Locale::En, "settings.editor_line_h") => "Content line height (px)",
         (Locale::En, "settings.editor_line_h.hint") => "Applies to JSON/content only: body JSON, docs, response body, response headers & Cookies/Timeline lists. Query/Headers tables keep a fixed row height · 12–32 · applies instantly",
+        (Locale::En, "settings.suggest_scale") => "Suggestion popup scale (×)",
+        (Locale::En, "settings.suggest_scale.hint") => "Scales the key/value history popup only (row height, width, font). 0.8–2.0, default 1.0, applies instantly",
+        (Locale::En, "undo.done") => "Undid the last delete",
         (Locale::En, "editor.tab.headers") => "Headers",
         (Locale::En, "editor.tab.body") => "Body",
         (Locale::En, "editor.tab.none") => "None",
@@ -528,6 +539,7 @@ pub fn tr(locale: Locale, key: &str) -> &'static str {
         (Locale::En, "trash.empty_confirm") => "Confirm empty (permanent)",
         (Locale::En, "import.hint") => "Paste a curl command (-X/-H/-d/--json/-u supported)",
         (Locale::En, "vars.complete_hint") => "Tab / Enter to complete · Esc to dismiss",
+        (Locale::En, "kv.complete_hint") => "Tab / Enter to complete · from history and existing request data",
         (Locale::En, "vars.title") => "Variables",
         (Locale::En, "vars.hint") => {
             "{{ var }} is replaced with these values on send; use “Add to env” for missing ones."

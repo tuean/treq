@@ -179,6 +179,10 @@ impl AppModel {
     }
 
     pub fn env_remove_var(&mut self, index: usize, cx: &mut Context<Self>) {
+        let snapshot = match &self.env_editor {
+            Some(ed) if index < ed.vars.len() => Some((ed.target.clone(), ed.vars.clone())),
+            _ => None,
+        };
         if let Some(ed) = &mut self.env_editor {
             if index < ed.vars.len() {
                 ed.vars.remove(index);
@@ -186,6 +190,9 @@ impl AppModel {
             let target = ed.target.clone();
             let vars = ed.vars.clone();
             self.rebuild_env_fields(target, vars, cx);
+        }
+        if let Some((target, vars)) = snapshot {
+            self.push_undo(UndoOp::EnvVars { target, vars });
         }
         cx.notify();
     }

@@ -100,6 +100,9 @@ pub struct Settings {
     /// 多行编辑器（请求体 JSON / Docs markdown）的行高 px（None = 默认 16）
     #[serde(default)]
     pub editor_line_h: Option<f32>,
+    /// 补全候选浮层缩放（None = 1.0；0.8~2.0）
+    #[serde(default)]
+    pub suggest_scale: Option<f32>,
     /// 事件流正文左侧是否显示每个事件的到达时间（None = 显示）
     #[serde(default)]
     pub sse_show_time: Option<bool>,
@@ -177,6 +180,8 @@ pub fn backup_interval(settings: &Settings) -> u64 {
 
 /// 多行编辑器行高默认值：从 18 收到 16（13px 字下更紧凑）
 pub const DEFAULT_EDITOR_LINE_H: f32 = 16.0;
+/// 补全候选浮层缩放默认值
+pub const DEFAULT_SUGGEST_SCALE: f32 = 1.0;
 
 /// 编辑器行高；夹在 12~32，配置里写离谱值也不会把界面搞坏。
 pub fn editor_line_h(settings: &Settings) -> f32 {
@@ -184,6 +189,14 @@ pub fn editor_line_h(settings: &Settings) -> f32 {
         .editor_line_h
         .unwrap_or(DEFAULT_EDITOR_LINE_H)
         .clamp(12.0, 32.0)
+}
+
+/// 补全候选浮层缩放；夹在 0.8~2.0（太小看不清，太大一屏放不下）。
+pub fn suggest_scale(settings: &Settings) -> f32 {
+    settings
+        .suggest_scale
+        .unwrap_or(DEFAULT_SUGGEST_SCALE)
+        .clamp(0.8, 2.0)
 }
 
 /// 备份保留份数；至少留 1 份（配置被手改成 0 也不能把备份删光）。
@@ -208,6 +221,7 @@ impl Default for Settings {
             backup_interval_min: None,
             backup_keep: None,
             editor_line_h: None,
+            suggest_scale: None,
             font_ui: None,
             font_ui_size: None,
             font_mono: None,

@@ -76,6 +76,83 @@ pub fn has_foldable(ends: &[Option<usize>]) -> bool {
         .any(|(i, e)| matches!(e, Some(end) if *end > i))
 }
 
+/// 折起来的一组里有几项（对象 = 几个键，数组 = 几个元素）。数不出来给 `None`。
+///
+/// 做法是按字节重扫这一组（开组行..结束行都算在内），只数「深度 1 上的逗号」：
+/// `{`/`[` 让深度 +1，`}`/`]` 让它 -1；每对括号自己配平，所以里层的逗号碰不到深度 1。
+/// 顺带就判定了类型 —— 开组行的第一个 `{`/`[` 谁先来，这组就是谁。
+pub fn group_items(lines: &[String], start: usize, end: usize) -> Option<(char, usize)> {
+    if end <= start {
+        return None;
+    }
+    let mut kind: Option<char> = None;
+    let mut depth = 0i32;
+    let mut commas = 0usize;
+    let mut children = 0usize;
+    // 开组行可能带前缀（`"list": [`），组里的内容要从**开括号之后**才开始算
+    let mut opened = false;
+    for line in lines.get(start..=end)? {
+        for tok in crate::jsonview::tokenize_line(line) {
+            if !opened {
+                // 还没到开括号：整行只会是空白 / 键 / 冒号之类的前缀，不算内容
+                if tok.kind == crate::jsonview::TokKind::Punct
+                    && let Some(open) = tok.text.bytes().find(|b| matches!(b, b'{' | b'['))
+                {
+                    opened = true;
+                    kind = Some(open as char);
+                    depth = 1;
+                }
+                continue;
+            }
+            if tok.kind != crate::jsonview::TokKind::Punct {
+                continue;
+            }
+            for b in tok.text.bytes() {
+                match b {
+                    b'{' | b'[' => {
+                        // 组里又开了一组 = 这个位置上有内容（哪怕它自己是空的）
+                        if depth == 1 {
+                            children += 1;
+                        }
+                        depth += 1;
+                    }
+                    b'}' | b']' => depth -= 1,
+                    b',' if depth == 1 => commas += 1,
+                    _ => {}
+                }
+            }
+        }
+    }
+    // 括号没配平（流式收到一半的响应）：不报数也不猜
+    let kind = kind.filter(|_| depth == 0)?;
+    // 逗号 = 分项；没逗号但开括号后头有点东西（`1` / `"a": 1` / 里层又开一组）也是恰一项
+    let has_content = children > 0
+        || lines[start..=end].iter().skip(1).any(|l| {
+            crate::jsonview::tokenize_line(l).iter().any(|t| {
+                !matches!(
+                    t.kind,
+                    crate::jsonview::TokKind::Space | crate::jsonview::TokKind::Punct
+                )
+            })
+        });
+    let n = if commas > 0 {
+        commas + 1
+    } else if has_content {
+        1
+    } else {
+        0
+    };
+    Some((kind, n))
+}
+
+/// 折起来那行尾巴上的「… 12 项」（`unit` 是调用方给的单位词，中文「项」/英文「items」）。
+///
+/// 数不出来（流式半截、空组）就只给 `…`，跟以前一样。
+pub fn fold_summary(lines: &[String], start: usize, end: usize, unit: &str) -> Option<String> {
+    let (_, n) = group_items(lines, start, end)?;
+    Some(format!("… {n} {unit}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -168,5 +245,62 @@ mod tests {
         // 折一个不存在 / 不可折的下标，不该丢掉任何行
         let folded: HashSet<usize> = [99, 1].into_iter().collect();
         assert_eq!(visible_indices(&ends, &folded), vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn counts_items_of_the_folded_group() {
+        let l = lines(NESTED);
+        let ends = group_ends(&l);
+        // 根对象：a、d 两个键
+        assert_eq!(group_items(&l, 0, ends[0].unwrap()), Some(('{', 2)));
+        // "a" 对象：b、c 两个键
+        assert_eq!(group_items(&l, 1, ends[1].unwrap()), Some(('{', 2)));
+        // "b" 数组：1、2 两个元素（"c" 里的 "}{" 不算括号）
+        assert_eq!(group_items(&l, 2, ends[2].unwrap()), Some(('[', 2)));
+    }
+
+    #[test]
+    fn counts_single_item_and_empty_groups() {
+        let l =
+            lines("{\n  \"a\": [\n    1\n  ],\n  \"b\": {\n    \"x\": 1\n  },\n  \"c\": [\n  ]\n}");
+        let ends = group_ends(&l);
+        let by_line = |i: usize| group_items(&l, i, ends[i].unwrap());
+        assert_eq!(by_line(1), Some(('[', 1))); // 单元素数组
+        assert_eq!(by_line(4), Some(('{', 1))); // 单键对象
+        assert_eq!(by_line(7), Some(('[', 0))); // 空数组
+        assert_eq!(group_items(&l, 0, ends[0].unwrap()), Some(('{', 3)));
+        // 整个响应就是空对象
+        let l = lines("{\n}");
+        let ends = group_ends(&l);
+        assert_eq!(group_items(&l, 0, ends[0].unwrap()), Some(('{', 0)));
+    }
+
+    #[test]
+    fn nested_commas_and_inline_children_do_not_inflate_the_count() {
+        // 数组元素是行内对象 / 嵌套数组：里层的逗号不能算进来
+        let l = lines("[\n  {\"a\": 1, \"b\": 2},\n  [1, 2, 3],\n  \"x\"\n]");
+        let ends = group_ends(&l);
+        assert_eq!(group_items(&l, 0, ends[0].unwrap()), Some(('[', 3)));
+    }
+
+    #[test]
+    fn unbalanced_or_degenerate_ranges_have_no_count() {
+        // 流式收到一半：括号还没配平，不报数
+        let l = lines("{\n  \"a\": [\n");
+        assert_eq!(group_items(&l, 0, 2), None);
+        // 结束行不在开头之后（不可能折叠）也给 None
+        assert_eq!(group_items(&l, 1, 1), None);
+        assert_eq!(group_items(&l, 0, 99), None);
+    }
+
+    #[test]
+    fn fold_summary_is_ellipsis_plus_count() {
+        let l = lines(NESTED);
+        let ends = group_ends(&l);
+        assert_eq!(
+            fold_summary(&l, 2, ends[2].unwrap(), "项").as_deref(),
+            Some("… 2 项")
+        );
+        assert_eq!(fold_summary(&l, 3, 3, "项"), None, "不可折叠的行没有摘要");
     }
 }

@@ -95,9 +95,18 @@ impl AppModel {
     }
 
     pub fn delete_history(&mut self, id: i64, cx: &mut Context<Self>) {
+        let entry = self
+            .history
+            .iter()
+            .find(|h| h.id == id)
+            .or_else(|| self.recent_all.iter().find(|h| h.id == id))
+            .cloned();
         let _ = self.history_store.delete(id);
         self.history.retain(|h| h.id != id);
         self.recent_all.retain(|h| h.id != id);
+        if let Some(entry) = entry {
+            self.push_undo(UndoOp::History { entry });
+        }
         cx.notify();
     }
 }

@@ -17,6 +17,7 @@ impl AppModel {
 
     /// 清 cookie：给域只清那个域，否则全清（都落盘）。
     pub fn clear_cookies(&mut self, domain: Option<&str>, cx: &mut Context<Self>) {
+        let snapshot = self.cookies.lock().ok().map(|j| j.clone());
         let n = self
             .cookies
             .lock()
@@ -33,6 +34,11 @@ impl AppModel {
             n,
             self.t("cookies.unit")
         ));
+        if n > 0
+            && let Some(jar) = snapshot
+        {
+            self.push_undo(UndoOp::Cookies { jar });
+        }
         cx.notify();
     }
 

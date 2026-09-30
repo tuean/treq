@@ -28,7 +28,7 @@
 - `⌘Enter` 发送 / 停止
 
 **响应**
-- 格式化（JSON 语法着色）/ 原始、行号、底部过滤框（只显示命中的行）、**JSON 行首箭头折叠**（`{`/`[` 行点 ▸ 折叠，工具栏「折叠全部 / 展开全部」只折最外层，折了带 `…` 标记）、大响应护栏（超 2MB 折叠，「完整」开关可强制全量渲染，接收上限 64MB）
+- 格式化（JSON 语法着色）/ 原始、行号、底部过滤框（只显示命中的行）、**JSON 行首箭头折叠**（`{`/`[` 行点 ▸ 折叠，工具栏「折叠全部 / 展开全部」只折最外层，**折起来带项数**：数组给 `… 12 项`、对象给 `… 3 个键`）、大响应护栏（超 2MB 折叠，「完整」开关可强制全量渲染，接收上限 64MB）
 - 切到别的请求再切回来，**上次的响应还在**（每个请求各存一份，最多 16 条 / 32MB，超出丢最旧的）；中途切走的慢请求也照记历史
 - Headers / Cookies / Timeline / 历史 四个 tab；Cookies 直接显示解析后的属性与过期时间
 - 一键**复制正文**、**保存到文件**（按 content-type 猜扩展名，中文名保留）；正文里**双击选中引号内的值**（复制粘贴最常用的那段）、三击才全选整行
@@ -79,6 +79,18 @@ cargo run -p treq-app                     # 开发运行（debug）
 ./scripts/bundle.sh release               # 打成 .app → target/treq.app
 open target/treq.app
 ```
+
+### 打包并安装到 Applications
+
+```bash
+./scripts/install_app.sh                  # release 打包 → /Applications/treq.app
+./scripts/install_app.sh --debug          # 迭代更快（debug 构建）
+./scripts/install_app.sh --watch          # 监听源码改动，更新后自动重装（应用运行时跳过）
+./scripts/install_app.sh --hooks          # git 提交/合并/变基后自动更新
+./scripts/install_app.sh --agent          # 安装登录后常驻的自动更新 LaunchAgent
+```
+
+安装前会检查 treq 是否正在运行：运行中则跳过，等应用关闭后（下次触发）再安装。
 
 首次启动会把工作区定在 `~/Documents/treq`（可在左上角工作区切换里改）。目录长这样：
 

@@ -3,7 +3,7 @@ use crate::nav::{NavEntry, NavStack};
 use crate::panes::{fmt_duration_ms, truncate_url};
 use crate::settings::{self, DropdownStyle, Settings, WorkspaceRef};
 use crate::theme;
-use crate::widgets::TextField;
+use crate::widgets::{TextField, Undo};
 use gpui::{prelude::*, *};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -32,6 +32,7 @@ mod quick;
 mod request_edit;
 mod response_ui;
 mod send;
+mod undo;
 mod vars_save;
 /// 启动时读 cookie 罐：文件坏了就改名留证、从空罐开始（不能因为坏文件起不来）。
 fn load_cookie_jar() -> CookieJar {
@@ -168,6 +169,36 @@ pub enum KvWhich {
     Headers,
     /// multipart/form-data 字段表
     FormData,
+}
+
+/// 可撤销的删除操作（Ctrl/Cmd+Z 逐条回退，见 `model::undo`）。
+pub enum UndoOp {
+    /// 恢复被删的 KV 行（Params / Headers）：在 index 处插回 rows
+    KvRestore {
+        req_id: String,
+        which: KvWhich,
+        index: usize,
+        rows: Vec<Kv>,
+    },
+    /// 恢复被删的 multipart 字段
+    FormRestore {
+        req_id: String,
+        index: usize,
+        rows: Vec<FormField>,
+    },
+    /// 恢复环境变量编辑器里的整份列表（删除只改草稿，撤销也只改草稿）
+    EnvVars {
+        target: String,
+        vars: Vec<(String, String)>,
+    },
+    /// 重新写回一条被删的历史记录
+    History { entry: HistoryEntry },
+    /// 从回收站恢复刚删的集合 / 分组 / 请求（按顺序逐个恢复）
+    Trash {
+        entries: Vec<(String, Option<String>, Option<String>)>,
+    },
+    /// 恢复被清的 cookie 罐
+    Cookies { jar: CookieJar },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -525,6 +556,14 @@ pub struct AppModel {
     pub sse_show_time: bool,
     /// 外观栏的「编辑器行高」输入框（只建一次，避免每帧重建丢焦点）
     pub editor_line_field: Option<Entity<TextField>>,
+    /// 外观栏的「候选浮层缩放」输入框（只建一次，避免每帧重建丢焦点）
+    pub suggest_scale_field: Option<Entity<TextField>>,
+    /// 删除操作撤销栈（最近的在末尾；Ctrl/Cmd+Z 逐条回退）
+    pub undo_stack: Vec<UndoOp>,
+    /// 会话内见过的 KV key（按表），清空重敲时照样能提示
+    pub kv_seen_keys: [Vec<String>; 3],
+    /// 会话内见过的 KV value（键 = "表|小写key"）
+    pub kv_seen_values: HashMap<String, Vec<String>>,
     /// 字体设置的四个输入框（按 `FontField` 顺序）
     pub font_fields: [Option<Entity<TextField>>; 4],
     /// 本帧活着的滚动区 id（根部按这些画常显竖滚动条；每帧开头清空）
@@ -785,6 +824,10 @@ impl AppModel {
             sse_lines: 0,
             sse_show_time,
             editor_line_field: None,
+            suggest_scale_field: None,
+            undo_stack: Vec::new(),
+            kv_seen_keys: [Vec::new(), Vec::new(), Vec::new()],
+            kv_seen_values: HashMap::new(),
             font_fields: Default::default(),
             scroll_live: Vec::new(),
             scroll_lists: Vec::new(),
@@ -1566,6 +1609,11 @@ impl AppModel {
                 .is_ok()
         });
         if ok {
+            let mut entries = Vec::new();
+            for gid in &doomed {
+                entries.push((collection_id.to_string(), Some(gid.clone()), None));
+            }
+            self.push_undo(UndoOp::Trash { entries });
             if let Some(c) = self
                 .workspace
                 .collections
@@ -1597,6 +1645,9 @@ impl AppModel {
             .trash_collection(self.store.root(), id)
             .is_ok()
         {
+            let mut entries = Vec::new();
+            entries.push((id.to_string(), None, None));
+            self.push_undo(UndoOp::Trash { entries });
             self.workspace.collections.retain(|c| c.id != id);
             let clear = match &self.selection {
                 Some(Selection::Collection(x)) => x == id,
@@ -1644,6 +1695,9 @@ impl AppModel {
             .trash_request(self.store.root(), &col_id, group_id.as_deref(), id)
             .is_ok()
         {
+            let mut entries = Vec::new();
+            entries.push((col_id.clone(), group_id.clone(), Some(id.to_string())));
+            self.push_undo(UndoOp::Trash { entries });
             if let Some(c) = self
                 .workspace
                 .collections
@@ -2515,6 +2569,8 @@ impl Render for AppModel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // 环境变量同步给输入框（供 `{{` 补全），只在变化时写
         self.sync_field_vars(cx);
+        // KV 的 key 框同步候选（历史 + 现有 key）
+        self.sync_kv_suggest(cx);
         // 滚动条登记表按帧重建：只有本帧渲染到的滚动区才画条
         self.scroll_live.clear();
         self.scroll_lists.clear();
@@ -2564,6 +2620,7 @@ impl Render for AppModel {
             // Ctrl+K 面板键盘导航（Enter 提交见 TextField.on_submit）
             .on_action(cx.listener(|this, _: &QuickUp, _w, cx| this.quick_move(-1, cx)))
             .on_action(cx.listener(|this, _: &QuickDown, _w, cx| this.quick_move(1, cx)))
+            .on_action(cx.listener(|this, _: &Undo, _w, cx| this.undo_last(cx)))
             .child(self.app_header(window, cx))
             .child(
                 div()
@@ -2590,7 +2647,7 @@ impl Render for AppModel {
                     ),
             )
             .child(self.status_bar(cx));
-        if let Some(field) = self.suggest_target(cx) {
+        if let Some(field) = self.suggest_target(window, cx) {
             root = root.child(self.suggest_overlay(field, window, cx));
         }
         if self.settings_page.is_some() {

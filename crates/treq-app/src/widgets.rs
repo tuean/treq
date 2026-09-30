@@ -51,9 +51,12 @@ actions!(
         Cut,
         Copy,
         Submit,
+        SubmitAll,
         SuggestUp,
         SuggestDown,
         SuggestAccept,
+        Undo,
+        Redo,
     ]
 );
 
@@ -74,7 +77,35 @@ pub fn bind_textfield_keys(cx: &mut App) {
         KeyBinding::new("end", End, None),
         KeyBinding::new("ctrl-cmd-space", ShowCharacterPalette, None),
         KeyBinding::new("enter", Submit, None),
-        // `{{` 变量补全：只在输入框上下文里生效（不抢全局上下键）
+        // 多行框：Enter 换行，⌘Enter / Ctrl+Enter 才是「提交」
+        KeyBinding::new("cmd-enter", SubmitAll, None),
+        KeyBinding::new("ctrl-enter", SubmitAll, None),
+        // 文本撤销/重做：全局绑定；输入框先接，接不住再冒泡给 AppModel 撤销删除
+        KeyBinding::new("cmd-z", Undo, None),
+        KeyBinding::new("ctrl-z", Undo, None),
+        KeyBinding::new("cmd-shift-z", Redo, None),
+        KeyBinding::new("ctrl-shift-z", Redo, None),
+    ]);
+}
+
+
+/// 临时调试日志（排查 Ctrl+Z），排查完删掉。
+pub(crate) fn debug_log(msg: &str) {
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/tmp/treq_undo.log")
+    {
+        let _ = f.write_all(msg.as_bytes());
+        let _ = f.write_all(b"\n");
+    }
+}
+
+/// 补全浮层按键必须在 App 的全局 up/down 之后注册：
+/// gpui 里同深度按键「后注册的赢」，否则输入框的 ↑↓ 会被命令面板抢走。
+pub fn bind_textfield_overlay_keys(cx: &mut App) {
+    cx.bind_keys([
         KeyBinding::new("up", SuggestUp, Some("TextInput")),
         KeyBinding::new("down", SuggestDown, Some("TextInput")),
         KeyBinding::new("tab", SuggestAccept, Some("TextInput")),
@@ -98,8 +129,15 @@ pub struct TextField {
     pub is_selecting: bool,
     pub on_change: ChangeCb,
     pub on_submit: Option<SubmitCb>,
+    /// 固定框多行（docs / curl 导入框）内部滚动容器的句柄。
+    /// AppModel 渲染时用它登记常显竖滚动条；顺便也用它做「光标跟随滚动」。
+    pub scroll: ScrollHandle,
+    /// 上一次「跟随滚动」时光标所在的偏移：光标没动就不跟随（不跟用户抢滚动）
+    pub last_follow_caret: Option<usize>,
     /// 多行模式（Body 编辑）：渲染多行、可换行输入；Enter 不触发 submit 而是输入换行
     pub multiline: bool,
+    /// 多行模式下 Enter 也触发 submit（导入框：粘贴完直接回车确认）
+    pub submit_on_enter: bool,
     /// 多行模式：高度随内容自动增长（不裁剪、不内部滚动，交给外层容器滚动）
     pub auto_grow: bool,
     /// 按 JSON 语法着色（body 编辑器用）
@@ -120,8 +158,30 @@ pub struct TextField {
     blink_task: Option<Task<()>>,
     /// 可补全的变量名（由 AppModel 在渲染前同步；空的就不弹补全）
     pub var_names: Vec<String>,
+    /// 纯文本补全候选（KV 的 key 框；由 AppModel 渲染前同步）。非空且聚焦时才按前缀弹。
+    pub plain_candidates: Vec<String>,
+    /// 当前帧是否获得焦点（失焦不弹补全，避免点了别处浮层还挂着）
+    pub focused: bool,
     /// `{{` 补全状态：候选项 + 当前选中项 + 正在补全的 range（含 `{{`）
     pub suggest: Option<Suggest>,
+    /// 撤销/重做快照（每次编辑前压入）
+    undo_stack: Vec<UndoState>,
+    redo_stack: Vec<UndoState>,
+    /// 上一次编辑时间：连续单字符增删合并成一步撤销
+    last_edit_at: Option<Instant>,
+    /// 上一次编辑是不是单字符增删（只有连续单字符才合并）
+    last_single: bool,
+    /// 刚接受补全：先别重开补全，下一次 Tab 直接跳到下一个输入框
+    just_accepted: bool,
+}
+
+/// 补全的接受方式：变量补全包一层 `{{ }}`，纯文本补全直接替换。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SuggestKind {
+    /// `{{ 变量 }}` 补全：把 `{{ 前缀` 换成 `{{ name }}`
+    Var,
+    /// 纯文本补全（KV 的 key 框）：用候选整段替换输入内容
+    Plain,
 }
 
 /// 输入 `{{` 时的补全状态。
@@ -130,8 +190,16 @@ pub struct Suggest {
     /// 候选项（已按输入前缀过滤）
     pub items: Vec<String>,
     pub selected: usize,
-    /// 要替换的区间（`{{` 起点 .. 光标）
+    /// 要替换的区间：变量补全是 `{{` 起点 .. 光标；纯文本补全是整段内容
     pub replace: Range<usize>,
+    pub kind: SuggestKind,
+}
+
+/// 输入框的一次编辑快照（撤销/重做用）。
+#[derive(Clone)]
+pub struct UndoState {
+    content: SharedString,
+    selection: Range<usize>,
 }
 
 impl TextField {
@@ -156,7 +224,10 @@ impl TextField {
             is_selecting: false,
             on_change,
             on_submit: None,
+            scroll: ScrollHandle::new(),
+            last_follow_caret: None,
             multiline: false,
+            submit_on_enter: false,
             auto_grow: false,
             json_highlight: false,
             line_height: None,
@@ -166,7 +237,14 @@ impl TextField {
             cursor_blink_reset: Instant::now(),
             blink_task: None,
             var_names: Vec::new(),
+            plain_candidates: Vec::new(),
+            focused: false,
             suggest: None,
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
+            last_edit_at: None,
+            last_single: false,
+            just_accepted: false,
         })
     }
 
@@ -233,23 +311,46 @@ impl TextField {
     /// 每帧在 render 里调用；候选项和位置没变时保留选中项，箭头选择不会被冲掉。
     pub fn refresh_suggest(&mut self) {
         let prev = self.suggest.clone();
-        let found = if self.selected_range.is_empty() && !self.var_names.is_empty() {
-            treq_core::vars::complete_at(&self.content, self.selected_range.end, &self.var_names, 8)
+        let found: Option<Suggest> = if !self.focused || !self.selected_range.is_empty() || self.just_accepted {
+            None
+        } else if !self.var_names.is_empty()
+            && let Some(c) = treq_core::vars::complete_at(
+                &self.content,
+                self.selected_range.end,
+                &self.var_names,
+                10,
+            )
+        {
+            Some(Suggest {
+                items: c.items,
+                selected: 0,
+                replace: c.replace,
+                kind: SuggestKind::Var,
+            })
+        } else if !self.plain_candidates.is_empty() {
+            let items = treq_core::suggest::filter_prefix(&self.plain_candidates, &self.content, 10);
+            if items.is_empty() {
+                None
+            } else {
+                Some(Suggest {
+                    items,
+                    selected: 0,
+                    replace: 0..self.content.len(),
+                    kind: SuggestKind::Plain,
+                })
+            }
         } else {
             None
         };
-        self.suggest = found.map(|c| {
-            let selected = match &prev {
-                Some(p) if p.items == c.items && p.replace.start == c.replace.start => {
-                    p.selected.min(c.items.len() - 1)
-                }
-                _ => 0,
-            };
-            Suggest {
-                items: c.items,
-                selected,
-                replace: c.replace,
+        self.suggest = found.map(|mut sg| {
+            if let Some(p) = &prev
+                && p.kind == sg.kind
+                && p.items == sg.items
+                && p.replace == sg.replace
+            {
+                sg.selected = p.selected.min(sg.items.len().saturating_sub(1));
             }
+            sg
         });
     }
 
@@ -269,6 +370,9 @@ impl TextField {
                 sg.selected - 1
             };
             cx.notify();
+        } else {
+            // 没有候补：让 ↑ 冒泡给命令面板的全局绑定
+            cx.propagate();
         }
     }
 
@@ -276,6 +380,9 @@ impl TextField {
         if let Some(sg) = &mut self.suggest {
             sg.selected = (sg.selected + 1) % sg.items.len();
             cx.notify();
+        } else {
+            // 没有候补：让 ↓ 冒泡给命令面板的全局绑定
+            cx.propagate();
         }
     }
 
@@ -287,7 +394,19 @@ impl TextField {
         let Some(name) = sg.items.get(sg.selected).cloned() else {
             return;
         };
-        let (content, caret) = treq_core::vars::apply_completion(&self.content, &sg.replace, &name);
+        self.push_undo(false);
+        self.just_accepted = true;
+        let (content, caret) = match sg.kind {
+            SuggestKind::Var => {
+                treq_core::vars::apply_completion(&self.content, &sg.replace, &name)
+            }
+            SuggestKind::Plain => {
+                let start = sg.replace.start.min(self.content.len());
+                let end = sg.replace.end.min(self.content.len()).max(start);
+                let new = format!("{}{}{}", &self.content[..start], name, &self.content[end..]);
+                (new, start + name.len())
+            }
+        };
         self.suggest = None;
         self.content = content.into();
         let caret = clamp_range(&self.content, caret..caret).start;
@@ -298,8 +417,82 @@ impl TextField {
         cx.notify();
     }
 
-    fn suggest_accept(&mut self, _: &SuggestAccept, _w: &mut Window, cx: &mut Context<Self>) {
-        self.accept_suggest(cx)
+    fn suggest_accept(&mut self, _: &SuggestAccept, window: &mut Window, cx: &mut Context<Self>) {
+        if self.suggest.is_some() {
+            // 有候选：Tab 先选中它
+            self.accept_suggest(cx);
+        } else {
+            // 没候选（或刚选中过）：Tab 正常跳到下一个输入框
+            self.just_accepted = false;
+            window.focus_next();
+        }
+    }
+
+    // ---- 撤销 / 重做 ----
+
+    /// 编辑前压一份快照。`coalesce` 为真且紧接上一次编辑（700ms 内）时合并，
+    /// 连续打字/按住退格只算一步，不用按几十次撤销。
+    fn push_undo(&mut self, coalesce: bool) {
+        let now = Instant::now();
+        let fresh = self
+            .last_edit_at
+            .is_some_and(|t| now.duration_since(t) < Duration::from_millis(700));
+        let merge = coalesce && fresh && self.last_single && self.undo_stack.is_empty() == false;
+        if merge {
+            // 合并进上一步：不压新快照
+        } else {
+            self.undo_stack.push(UndoState {
+                content: self.content.clone(),
+                selection: self.selected_range.clone(),
+            });
+            if self.undo_stack.len() > 200 {
+                self.undo_stack.remove(0);
+            }
+        }
+        self.redo_stack.clear();
+        self.last_single = coalesce;
+        self.last_edit_at = Some(now);
+    }
+
+    /// 把一份快照写回内容与光标（撤销/重做共用）。
+    fn apply_undo_state(&mut self, st: UndoState, cx: &mut Context<Self>) {
+        self.selected_range = clamp_range(&st.content, st.selection);
+        self.content = st.content;
+        self.marked_range = None;
+        self.suggest = None;
+        self.just_accepted = false;
+        self.last_edit_at = None;
+        self.last_single = false;
+        (self.on_change)(&self.content, cx);
+        self.reset_cursor_blink(cx);
+    }
+
+    fn undo(&mut self, _: &Undo, _w: &mut Window, cx: &mut Context<Self>) {
+        debug_log("tf.undo enter");
+        debug_log(&("tf.undo stack=".to_string() + &self.undo_stack.len().to_string()));
+        let Some(prev) = self.undo_stack.pop() else {
+            // 自己没有可撤销的文本编辑：让动作冒泡给 AppModel 撤销删除
+            debug_log("tf.undo propagate");
+            cx.propagate();
+            return;
+        };
+        self.redo_stack.push(UndoState {
+            content: self.content.clone(),
+            selection: self.selected_range.clone(),
+        });
+        self.apply_undo_state(prev, cx);
+    }
+
+    fn redo(&mut self, _: &Redo, _w: &mut Window, cx: &mut Context<Self>) {
+        let Some(next) = self.redo_stack.pop() else {
+            cx.propagate();
+            return;
+        };
+        self.undo_stack.push(UndoState {
+            content: self.content.clone(),
+            selection: self.selected_range.clone(),
+        });
+        self.apply_undo_state(next, cx);
     }
 
     fn submit(&mut self, _: &Submit, window: &mut Window, cx: &mut Context<Self>) {
@@ -312,13 +505,24 @@ impl TextField {
             self.accept_suggest(cx);
             return;
         }
-        if self.multiline {
+        if self.multiline && !self.submit_on_enter {
             self.replace_text_in_range(None, "\n", window, cx);
             return;
         }
         if let Some(f) = self.on_submit.as_ref() {
             f(window, cx);
             self.selected_range = self.content.len()..self.content.len();
+        }
+        self.reset_cursor_blink(cx);
+    }
+
+    /// 多行框的显式提交：Enter 换行，⌘Enter / Ctrl+Enter 走这里。
+    fn submit_all(&mut self, _: &SubmitAll, window: &mut Window, cx: &mut Context<Self>) {
+        if self.marked_range.is_some() {
+            return;
+        }
+        if let Some(f) = self.on_submit.as_ref() {
+            f(window, cx);
         }
         self.reset_cursor_blink(cx);
     }
@@ -553,6 +757,13 @@ impl EntityInputHandler for TextField {
                 .or(self.marked_range.clone())
                 .unwrap_or(self.selected_range.clone()),
         );
+        // 单字符增/删合并成一步撤销；整段粘贴/替换单独记一步
+        let single_insert = range.is_empty() && new_text.chars().count() == 1;
+        let single_delete = new_text.is_empty()
+            && !range.is_empty()
+            && self.content[range.clone()].chars().count() == 1;
+        self.push_undo(single_insert || single_delete);
+        self.just_accepted = false;
         self.content =
             (self.content[0..range.start].to_owned() + new_text + &self.content[range.end..])
                 .into();
@@ -578,6 +789,11 @@ impl EntityInputHandler for TextField {
                 .or(self.marked_range.clone())
                 .unwrap_or(self.selected_range.clone()),
         );
+        // IME 组词只在开始时压一次快照，中间态不单独记
+        if self.marked_range.is_none() {
+            self.push_undo(false);
+        }
+        self.just_accepted = false;
         self.content =
             (self.content[0..range.start].to_owned() + new_text + &self.content[range.end..])
                 .into();
@@ -641,6 +857,8 @@ struct PrepaintState {
     selection: Option<Vec<PaintQuad>>,
     /// 单行框的横向滚动偏移
     scroll_x: Pixels,
+    /// 本帧做过「光标跟随」的话记下光标偏移，paint 里写回（避免每帧都跟随）
+    follow_caret: Option<usize>,
 }
 
 impl IntoElement for TextElement {
@@ -670,20 +888,22 @@ impl Element for TextElement {
         let mut style = Style::default();
         style.size.width = relative(1.).into();
         style.size.height = if self.input.read(cx).multiline {
-            // 高度随行数增长；auto_grow（body 编辑器）不设上限，全部内容都撑开，
-            // 由外层滚动容器负责滚动（固定框模式仍限制 300px 后内部裁剪滚动）
+            // 高度 = 全部内容的高度（不裁剪、不设上限）：
+            // auto_grow 由外层滚动容器滚；固定框（docs / 正文）由容器内部滚。
+            // 曾经这里把固定框的高度压到 300px，结果超过 300px 的内容既滚不到也被裁掉。
             let input = self.input.read(cx);
             let first_line_h = input.line_height.unwrap_or_else(|| window.line_height());
             let line_count = input.content.split('\n').count().max(1) as f32;
-            let mut h = line_count * first_line_h.to_f64() as f32;
-            if !input.auto_grow {
-                h = h.min(300.);
-            }
+            let h = line_count * first_line_h.to_f64() as f32;
             px(h.max(first_line_h.to_f64() as f32)).into()
         } else {
             let input = self.input.read(cx);
             input.line_height.unwrap_or_else(|| window.line_height()).into()
         };
+        // 固定高度的滚动容器里，子元素默认 flex-shrink:1 会被压扁到容器高度：
+        // 内容高度 == 视口高度 → max_offset 恒为 0 → 滚不动、也画不出滚动条。
+        // 内容必须保持自己的高度，超出的部分交给容器的 overflow 裁剪/滚动。
+        style.flex_shrink = 0.;
         (window.request_layout(style, [], cx), ())
     }
 
@@ -779,10 +999,14 @@ impl Element for TextElement {
                 .unwrap_or(0)
         };
 
+        // 光标所在行（光标 x / 光标块 / 纵向跟随滚动都要用）
+        let caret_li = line_for_offset(cursor);
+        // 光标偏移（下面 `cursor` 这个名字会被光标方块复用）
+        let caret_offset = cursor;
+
         // 光标在当前行里的 x（未滚动）
         let caret_x = {
-            let li = line_for_offset(cursor);
-            let (start, line) = &lines[li];
+            let (start, line) = &lines[caret_li];
             line.x_for_index(cursor.saturating_sub(*start).min(line.text.len()))
         };
         // 单行框：内容长了就横向滚动让光标可见（多行有自己的滚动容器，不动）
@@ -798,12 +1022,11 @@ impl Element for TextElement {
 
         // 光标定位
         let cursor = if selected_range.is_empty() && !display_text.is_empty() {
-            let li = line_for_offset(cursor);
             Some(fill(
                 Bounds::new(
                     point(
                         bounds.left() + caret_x - scroll_x,
-                        bounds.top() + line_h * li as f32,
+                        bounds.top() + line_h * caret_li as f32,
                     ),
                     size(px(2.), line_h),
                 ),
@@ -854,11 +1077,46 @@ impl Element for TextElement {
             if quads.is_empty() { None } else { Some(quads) }
         };
 
+        // 固定框多行：光标跑出可视区就把内部滚动容器带上。
+        // 没有这段的话「一直在同一位置打字」光标会掉到框外，只能靠手动滚回来。
+        // 只在光标「动过」时跟随（否则用户用滚轮翻看内容会被每帧拽回光标处）。
+        // 整段包在块里：`input` 这个借用到块结束就还回去了，下面才能 update 自己。
+        let followed = {
+            let follow = input.multiline && !input.auto_grow;
+            let followed_already = input.last_follow_caret == Some(caret_offset);
+            if follow && !followed_already {
+                if input.focus_handle.is_focused(window) {
+                    let view = input.scroll.bounds();
+                    let max = input.scroll.max_offset();
+                    let off = input.scroll.offset();
+                    let caret_top = f32::from(bounds.top() + line_h * caret_li as f32);
+                    if let Some(y) = follow_scroll_y(
+                        f32::from(view.top()),
+                        f32::from(view.bottom()),
+                        caret_top,
+                        caret_top + f32::from(line_h),
+                        f32::from(off.y),
+                        f32::from(max.height),
+                        2.,
+                    ) {
+                        input.scroll.set_offset(point(off.x, px(y)));
+                    }
+                }
+                true
+            } else {
+                false
+            }
+        };
+        if followed {
+            self.input
+                .update(cx, |f, _cx| f.last_follow_caret = Some(caret_offset));
+        }
         PrepaintState {
             lines,
             cursor,
             selection,
             scroll_x,
+            follow_caret: followed.then_some(caret_offset),
         }
     }
 
@@ -897,12 +1155,16 @@ impl Element for TextElement {
             line.paint(origin, line_h, window, cx).unwrap();
         }
         let scroll_x = prepaint.scroll_x;
+        let follow_caret = prepaint.follow_caret.take();
         self.input.update(cx, |input, _cx| {
             input.last_layout = lines.last().map(|(_, l)| l.clone());
             input.last_lines = lines.clone();
             input.last_line_h = line_h.to_f64() as f32;
             input.last_bounds = Some(bounds);
             input.last_scroll_x = scroll_x.to_f64() as f32;
+            if let Some(c) = follow_caret {
+                input.last_follow_caret = Some(c);
+            }
         });
         let cursor_visible = self.input.read(cx).cursor_visible;
         if focus_handle.is_focused(window)
@@ -955,6 +1217,34 @@ fn scroll_x_for(caret_x: f32, view_w: f32, content_w: f32) -> f32 {
     (caret_x + 4. - view_w).max(0.).min((content_w + 4. - view_w).max(0.))
 }
 
+/// 固定框多行输入框的「光标跟随」：光标跑出可视区时算出新的纵向滚动偏移
+/// （gpui 里往下滚是负值）。返回 None = 不用动（没得滚 / 光标本来就在框里）。
+///
+/// 抽成纯函数是为了可测：这段算错的表现很隐蔽（打字时光标掉到框外看不见）。
+fn follow_scroll_y(
+    view_top: f32,
+    view_bottom: f32,
+    caret_top: f32,
+    caret_bottom: f32,
+    off_y: f32,
+    max_h: f32,
+    pad: f32,
+) -> Option<f32> {
+    if max_h < 1. || view_bottom - view_top < 1. {
+        return None;
+    }
+    let mut y = off_y;
+    if caret_top < view_top + pad {
+        // 光标在可视区上方：往上滚（offset 变接近 0）
+        y = off_y + (view_top + pad - caret_top);
+    } else if caret_bottom > view_bottom - pad {
+        // 光标在可视区下方：往下滚（offset 更负）
+        y = off_y - (caret_bottom - (view_bottom - pad));
+    }
+    let y = y.clamp(-max_h, 0.);
+    if (y - off_y).abs() > 0.5 { Some(y) } else { None }
+}
+
 #[cfg(test)]
 mod scroll_tests {
     use super::scroll_x_for;
@@ -985,6 +1275,42 @@ mod scroll_tests {
     #[test]
     fn caret_at_start_scrolls_back() {
         assert_eq!(scroll_x_for(0., 300., 1000.), 0.);
+    }
+
+    #[test]
+    fn follow_keeps_caret_inside_the_view() {
+        use super::follow_scroll_y;
+        // 视口 100..200，内容 300 高（max 200），光标在 260 行位置（框外下方）
+        let y = follow_scroll_y(100., 200., 250., 266., 0., 200., 2.).expect("要滚");
+        assert!(y < 0., "往下滚 offset 是负的：{y}");
+        // 滚完 250..266 落在 100..200 内（上下各留 2px）
+        assert!(250. + y >= 100. + 2. - 0.01 && 266. + y <= 200. - 2. + 0.01, "y={y}");
+    }
+
+    #[test]
+    fn follow_scrolls_back_up_when_caret_above() {
+        use super::follow_scroll_y;
+        // 已经滚到底 -200，光标跑到可视区上方（screen y=60）→ 往上滚 42
+        assert_eq!(follow_scroll_y(100., 200., 60., 76., -200., 200., 2.), Some(-158.));
+        // 滚过头就夹到顶（-10 + 42 = 32 → 0）
+        assert_eq!(follow_scroll_y(100., 200., 60., 76., -10., 200., 2.), Some(0.));
+        // 光标在框内就完全不动
+        assert_eq!(follow_scroll_y(100., 200., 120., 136., -50., 200., 2.), None);
+    }
+
+    #[test]
+    fn follow_never_scrolls_without_overflow() {
+        use super::follow_scroll_y;
+        assert_eq!(follow_scroll_y(100., 200., 150., 166., 0., 0., 2.), None, "没得滚");
+        assert_eq!(follow_scroll_y(100., 100., 150., 166., 0., 50., 2.), None, "视口为 0");
+    }
+
+    #[test]
+    fn follow_clamps_to_bottom() {
+        use super::follow_scroll_y;
+        // 光标在内容最后一行、且框很小：最多滚到 -max
+        let y = follow_scroll_y(100., 200., 900., 916., 0., 200., 2.).expect("要滚");
+        assert_eq!(y, -200.);
     }
 }
 
@@ -1065,6 +1391,8 @@ mod text_range_tests {
 impl Render for TextField {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let focused = self.focus_handle.is_focused(window);
+        // 失焦不弹补全，避免点到别处浮层还挂着
+        self.focused = focused;
         // 每帧按光标重算补全（纯状态，不 notify，不会自激）
         self.refresh_suggest();
         if self.blink_task.is_none() {
@@ -1113,6 +1441,8 @@ impl Render for TextField {
                         d.when(self.fill, |d| d.flex_1().min_h(theme::sp6()).h_full())
                             .when(!self.fill, |d| d.h(px(160.)))
                             .overflow_y_scroll()
+                            // 绑上句柄：根部据此画常显竖滚动条（内容不超高时不画）
+                            .track_scroll(&self.scroll)
                     })
             })
             .when(!self.multiline, |d| {
@@ -1135,9 +1465,12 @@ impl Render for TextField {
             .on_action(cx.listener(Self::home))
             .on_action(cx.listener(Self::end))
             .on_action(cx.listener(Self::submit))
+            .on_action(cx.listener(Self::submit_all))
             .on_action(cx.listener(Self::suggest_up))
             .on_action(cx.listener(Self::suggest_down))
             .on_action(cx.listener(Self::suggest_accept))
+            .on_action(cx.listener(Self::undo))
+            .on_action(cx.listener(Self::redo))
             .on_action(cx.listener(Self::show_character_palette))
             .on_action(cx.listener(Self::paste))
             .on_action(cx.listener(Self::cut))

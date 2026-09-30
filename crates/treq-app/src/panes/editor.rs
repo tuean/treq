@@ -42,7 +42,10 @@ impl AppModel {
             let lh = px(crate::settings::editor_line_h(&self.settings));
             field.update(cx, |f, _cx| {
                 f.multiline = true;
-                f.auto_grow = true;
+                // 跟 docs 一样的形态：撑满剩下的一块地方 + 内部滚动（滚动条常显）。
+                // auto_grow 与 fill 互斥：auto_grow 是把整块内容摊开、交给外层滚动。
+                f.auto_grow = false;
+                f.fill = true;
                 f.json_highlight = json;
                 f.line_height = Some(lh);
             });
@@ -127,7 +130,13 @@ impl AppModel {
                     .font_weight(FontWeight::BOLD)
                     .text_color(theme::method_color(&method))
                     .hover(|d| d.bg(theme::bg_hover()))
-                    .child(div().flex_1().min_w_0().truncate().child(SharedString::from(method)))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .child(SharedString::from(method)),
+                    )
                     // 箭头用与其它下拉框同一枚 chevron（展开时翻转）
                     .child(widgets::chevron(
                         theme::fg_dim(),
@@ -448,17 +457,26 @@ impl AppModel {
             head = head.border_t_1().border_color(theme::border());
             return head.into_any();
         }
+        // docs 是多行固定框：内容超高时画常显竖滚动条（收起时不登记，免得飘一根）
+        let bar_docs = field.read(cx).scroll.clone();
+        self.track_scrollbar("docs-field", &bar_docs);
         div()
             .id("docs-section")
             .flex()
             .flex_col()
             .flex_none()
             .h(px(180.))
+            // 兜底裁剪：万一输入框还是比这块高，也只能裁在块内，不会压到页脚/窗口外
+            .overflow_hidden()
             .border_t_1()
             .border_color(theme::border())
             .child(head)
             .child(
+                // flex_col：让输入框的 flex_1/h_full 落在「head 之外剩下的高度」上；
+                // 否则输入框按固定 160px 画，会越过 docs 区压到页脚、顶出窗口
                 div()
+                    .flex()
+                    .flex_col()
                     .flex_1()
                     .min_h_0()
                     .px(theme::sp4())

@@ -13,6 +13,9 @@ impl AppModel {
             cx,
         );
         draft.update(cx, |f, _cx| {
+            // 多行输入：粘贴 Chrome「Copy as cURL」时保留反斜杠续行；Enter 直接确认
+            f.multiline = true;
+            f.submit_on_enter = true;
             let h = handle.clone();
             f.on_submit = Some(Arc::new(move |_window, app| {
                 // confirm_import 要读这个输入框 → 不能在它自己的 update 里读，推迟一帧
@@ -91,8 +94,8 @@ impl AppModel {
                     {
                         c.requests.push(r.clone());
                     }
-                    self.selection = Some(Selection::Request(r.id));
-                    self.fields = EditorFields::new();
+                    // 创建完后自动在侧栏定位并滚动到新请求
+                    self.reveal_request(r.id.clone(), cx);
                     self.load_history(cx);
                 }
                 self.import_dialog = None;

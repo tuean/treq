@@ -27,6 +27,7 @@ impl AppModel {
     }
 
     pub fn kv_remove(&mut self, which: KvWhich, index: usize, cx: &mut Context<Self>) {
+        let op = self.kv_remove_snapshot(which, index);
         self.update_selected_request(
             |r| match which {
                 KvWhich::Params => {
@@ -47,10 +48,46 @@ impl AppModel {
             },
             cx,
         );
+        if let Some(op) = op {
+            self.push_undo(op);
+        }
         self.rebuild_kv_fields(cx);
     }
 
     /// 结构变化（删除行）后重建 kv 输入框缓存；url/body 实体不动（否则输入失焦）。
+
+    /// 删之前把那一行抄下来（Params / Headers 用 Kv，multipart 用 FormField）。
+    fn kv_remove_snapshot(&self, which: KvWhich, index: usize) -> Option<UndoOp> {
+        let r = self.selected_request()?;
+        let req_id = r.id.clone();
+        match which {
+            KvWhich::Params | KvWhich::Headers => {
+                let kvs = match which {
+                    KvWhich::Params => &r.params,
+                    _ => &r.headers,
+                };
+                let row = kvs.get(index)?.clone();
+                let mut rows = Vec::new();
+                rows.push(row);
+                Some(UndoOp::KvRestore {
+                    req_id,
+                    which,
+                    index,
+                    rows,
+                })
+            }
+            KvWhich::FormData => {
+                let row = r.body.form_data.get(index)?.clone();
+                let mut rows = Vec::new();
+                rows.push(row);
+                Some(UndoOp::FormRestore {
+                    req_id,
+                    index,
+                    rows,
+                })
+            }
+        }
+    }
     pub(crate) fn rebuild_kv_fields(&mut self, _cx: &mut Context<Self>) {
         self.fields.kv = HashMap::new();
     }
@@ -303,6 +340,21 @@ impl AppModel {
     /// 过滤条有内容时展示的是查询结果、不是原文，折叠没有意义。
     pub(crate) fn folding_active(&self) -> bool {
         self.resp_filter.trim().is_empty()
+    }
+
+    /// 折起来那一行尾巴上跟的摘要：`… 12 项`（数组）/ `… 3 个键`（对象）。
+    ///
+    /// 数不出来（流式半截、空组、不可折叠的行）就回 `None` —— 界面只画 `…`，跟以前一样。
+    pub(crate) fn fold_summary_for(&self, line: usize) -> Option<String> {
+        let end = (*self.resp_fold_ends.get(line)?)?;
+        if end <= line {
+            return None;
+        }
+        let unit = match crate::fold::group_items(&self.resp_all_lines, line, end)?.0 {
+            '[' => self.t("response.fold_items"),
+            _ => self.t("response.fold_keys"),
+        };
+        crate::fold::fold_summary(&self.resp_all_lines, line, end, unit)
     }
 
     // ---- 响应行右键：复制这一行 / 复制值 / 复制路径 / 存为变量 ----
