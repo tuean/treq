@@ -147,6 +147,15 @@ impl RespSel {
     }
 }
 
+/// 进入改名时输入框的选中范围：`select_all` 为真则全选，否则把光标收到文字末尾
+/// （`n..n` 是空区间 = 不选中任何字，光标贴在最后一个字符后面）。
+///
+/// 抽成纯函数是为了能直接测：双击改名要「光标在最后」，新建后改名要「全选」，
+/// 两个入口共用 [`AppModel::begin_rename`]，别让其中一边被改坏。
+pub fn rename_caret_range(len: usize, select_all: bool) -> std::ops::Range<usize> {
+    if select_all { 0..len } else { len..len }
+}
+
 /// 行内重命名状态。
 pub struct RenameState {
     pub target: Selection,
@@ -1549,7 +1558,7 @@ impl AppModel {
             // 新建的排最前面（列表是自上而下扫，放末尾要滚到底才看得见）
             self.workspace.collections.insert(0, col.clone());
             self.reveal_node(Selection::Collection(col.id.clone()), cx);
-            self.begin_rename(Selection::Collection(col.id), cx);
+            self.begin_rename(Selection::Collection(col.id), false, cx);
         }
     }
     pub fn create_request(&mut self, collection_id: &str, cx: &mut Context<Self>) {
@@ -1592,7 +1601,7 @@ impl AppModel {
             }
             // 选中 + 展开祖先 + 滚进视野（新建的行在最上面，可能不在当前视野里）
             self.reveal_request(req.id.clone(), cx);
-            self.begin_rename(Selection::Request(req.id), cx);
+            self.begin_rename(Selection::Request(req.id), false, cx);
         }
     }
 
@@ -1617,7 +1626,7 @@ impl AppModel {
             }
             self.expand_ancestors_of(&g.id);
             self.reveal_node(Selection::Group(g.id.clone()), cx);
-            self.begin_rename(Selection::Group(g.id), cx);
+            self.begin_rename(Selection::Group(g.id), false, cx);
         }
     }
 
@@ -1743,7 +1752,11 @@ impl AppModel {
     }
 
     // ---- 重命名（行内编辑） ----
-    pub fn begin_rename(&mut self, target: Selection, cx: &mut Context<Self>) {
+    /// 进入重命名。
+    ///
+    /// `cursor_end`：把光标放到文字末尾而不是全选。
+    /// 新建后改名用全选（多半要整个换掉）；双击改名用末尾（多半只想追加/微调）。
+    pub fn begin_rename(&mut self, target: Selection, cursor_end: bool, cx: &mut Context<Self>) {
         let current = match &target {
             Selection::Collection(id) => self
                 .workspace
@@ -1772,9 +1785,9 @@ impl AppModel {
             Arc::new(|_, _| {}),
             cx,
         );
-        // 全选，便于直接重打
+        // 全选便于直接重打；双击进来的则把光标收到末尾（空区间 = 不选中任何字）
         field.update(cx, |f, cx| {
-            f.selected_range = 0..f.content.len();
+            f.selected_range = rename_caret_range(f.content.len(), !cursor_end);
             cx.notify();
         });
         let handle = cx.entity();
@@ -2301,7 +2314,7 @@ impl AppModel {
         }
         if let Some(rest) = id.strip_prefix("rename-group:") {
             if let Some((_cid, gid)) = rest.split_once(':') {
-                self.begin_rename(Selection::Group(gid.to_string()), cx);
+                self.begin_rename(Selection::Group(gid.to_string()), false, cx);
             }
             return;
         }
@@ -2312,11 +2325,11 @@ impl AppModel {
             return;
         }
         if let Some(rest) = id.strip_prefix("rename-col:") {
-            self.begin_rename(Selection::Collection(rest.to_string()), cx);
+            self.begin_rename(Selection::Collection(rest.to_string()), false, cx);
             return;
         }
         if let Some(rest) = id.strip_prefix("rename-req:") {
-            self.begin_rename(Selection::Request(rest.to_string()), cx);
+            self.begin_rename(Selection::Request(rest.to_string()), false, cx);
             return;
         }
         if let Some(rest) = id.strip_prefix("collapse-others-col:") {
@@ -2888,5 +2901,29 @@ mod find_request_tests {
         assert_eq!(w.collections[0].groups[0].requests[0].name, "新名字");
         assert_eq!(w.collections[0].requests[0].name, "外层");
         assert!(find_request_mut(&mut w, "没有").is_none());
+    }
+}
+
+#[cfg(test)]
+mod rename_caret_tests {
+    use super::rename_caret_range;
+
+    #[test]
+    fn double_click_puts_the_caret_at_the_end_without_selecting() {
+        // 双击改名：光标贴在末尾，空区间（不选中任何字），可以直接往后打字
+        assert_eq!(rename_caret_range(6, false), 6..6);
+        // 多字节名字按字节算，末尾仍是末尾（不能切在字符中间）
+        let name = "生产";
+        let r = rename_caret_range(name.len(), false);
+        assert_eq!(r, name.len()..name.len());
+        assert!(name.is_char_boundary(r.start));
+        assert!(r.is_empty(), "双击进来不应全选");
+    }
+
+    #[test]
+    fn new_entity_rename_still_selects_everything() {
+        // 新建后改名：全选，便于直接重打
+        assert_eq!(rename_caret_range(11, true), 0..11);
+        assert_eq!(rename_caret_range(0, true), 0..0);
     }
 }

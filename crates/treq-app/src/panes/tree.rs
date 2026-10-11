@@ -313,6 +313,14 @@ impl AppModel {
                                 return;
                             }
                             this.select_request(click.clone(), window, cx);
+                            // 双击 = 就地改名（光标落在名字末尾，方便加后缀之类的微调）
+                            if e.click_count() == 2 {
+                                this.begin_rename(
+                                    crate::model::Selection::Request(click.clone()),
+                                    true,
+                                    cx,
+                                );
+                            }
                         })
                     })
                     .on_mouse_down(
