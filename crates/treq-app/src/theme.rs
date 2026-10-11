@@ -106,7 +106,6 @@ struct Palette {
     bg_hover: u32,      // interactive-bg-hover
     bg_selected: u32,   // interactive-bg-hover-solid
     bg_open: u32,       // 下拉框「打开态」底色（比下沉条再亮/再深一档）
-    bg_close_hover: u32, // 危险按钮 hover（没用到就与 bg_button 同值）
     bg_success: u32,    // state-success-primary（2xx pill 底）
     // 边框
     border: u32,        // border-l2
@@ -122,7 +121,6 @@ struct Palette {
     primary: u32,  // brand-primary（焦点、选中条）
     accent: u32,   // button-primary-fill（主按钮底）
     accent_hi: u32, // button-primary-hover
-    accent_deep: u32, // 强调色的暗端（渐变 / 压深）
     on_accent: u32,   // 强调底上的文字色
     blue: u32,     // link
     green: u32,    // state-success-secondary（成功文字）
@@ -174,7 +172,6 @@ const HARBOR: Palette = Palette {
     bg_hover: 0xffffff14,      // 悬停：白色微光叠加
     bg_selected: 0xffffff1f,   // 选中行
     bg_open: 0xffffff24,       // 下拉框打开态
-    bg_close_hover: 0xd14040f2, // 危险 hover：警示红
     bg_success: harbor::SIGNAL_GREEN,
     // 边框：靛蓝同族，不用白灰
     border: 0x2b3350e6,
@@ -190,7 +187,6 @@ const HARBOR: Palette = Palette {
     primary: harbor::SUNSET,
     accent: harbor::SUNSET,
     accent_hi: harbor::SUNSET_HI,
-    accent_deep: harbor::EMBER_DEEP,
     on_accent: 0x2b1206, // 橙底上用深棕近黑字，对比比白字更稳
     blue: harbor::LIGHTHOUSE,
     green: harbor::SIGNAL_GREEN,
@@ -223,7 +219,6 @@ const LIGHT: Palette = Palette {
     bg_hover: nb::N_100,
     bg_selected: nb::N_150,
     bg_open: nb::N_100,
-    bg_close_hover: 0xfdece9,
     bg_success: hue::GREEN_500,
     // 边框：黑色低透明叠加
     border: 0x0000001a,
@@ -239,7 +234,6 @@ const LIGHT: Palette = Palette {
     primary: hue::BLUE_900, // 浅色下用深蓝，白底才读得清
     accent: ds::N_500,
     accent_hi: ds::N_450,
-    accent_deep: 0x2f4c8f,
     on_accent: 0xffffff,
     blue: ds::N_500,
     green: hue::GREEN_500,
@@ -277,7 +271,6 @@ const INSOMNIA_DARK: Palette = Palette {
     bg_hover: 0x363636,
     bg_selected: 0x3a3a3a,
     bg_open: 0x3a3a3a,
-    bg_close_hover: 0xa33a3a,
     bg_success: 0x75ba24,    // 2xx pill（配白字）
     // 边框
     border: 0x3a3a3a,
@@ -293,7 +286,6 @@ const INSOMNIA_DARK: Palette = Palette {
     primary: 0x8776d5, // 品牌紫：焦点、选中条、拖动条
     accent: 0x8776d5,
     accent_hi: 0x9a8be0,
-    accent_deep: 0x6a5cb5,
     on_accent: 0xffffff,
     blue: 0x6ca0f5,
     green: 0x7ecf2b,
@@ -326,7 +318,6 @@ const INSOMNIA_LIGHT: Palette = Palette {
     bg_hover: 0xf2f2f2,
     bg_selected: 0xeae6f8, // 选中带一点品牌紫
     bg_open: 0xeae6f8,
-    bg_close_hover: 0xfdecec,
     bg_success: 0x75ba24,
     // 边框
     border: 0x00000014,
@@ -342,7 +333,6 @@ const INSOMNIA_LIGHT: Palette = Palette {
     primary: 0x6a5cb5, // 焦点等小面积用深紫，白底更清楚
     accent: 0x8776d5,  // 主按钮保持 Insomnia 品牌紫
     accent_hi: 0x9a8be0,
-    accent_deep: 0x6a5cb5,
     on_accent: 0xffffff,
     blue: 0x2f6fd0,
     green: 0x4f9a16,
@@ -461,10 +451,6 @@ pub fn bg_accent_hover() -> Rgba {
 pub fn bg_success() -> Rgba {
     p().c(p().bg_success)
 }
-/// 危险按钮 hover 底色
-pub fn bg_close_hover() -> Rgba {
-    p().c(p().bg_close_hover)
-}
 /// 弹窗遮罩（夜色下用更深的蓝黑，别把玻璃感压灰）
 pub fn bg_backdrop() -> Rgba {
     match scheme() {
@@ -527,11 +513,6 @@ pub fn scroll_thumb() -> Rgba {
 pub fn fg_on_accent() -> Rgba {
     p().c(p().on_accent)
 }
-/// 强调色的暗端（渐变 / 压深用）
-pub fn accent_deep() -> Rgba {
-    p().c(p().accent_deep)
-}
-
 // ---- 语义色 ----
 /// 品牌色：焦点、选中条、拖动条
 pub fn primary() -> Rgba {

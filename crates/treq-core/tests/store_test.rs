@@ -454,3 +454,36 @@ fn set_group_parent_moves_dir_and_refuses_nothing_else() {
     let found = store.find_group_dir(&child.id).unwrap();
     assert!(found.join("requests").join(format!("{}.yml", deep.id)).is_file());
 }
+
+/// 一次性排查用：量一次真实工作区的载入耗时（只手动跑，不进默认套件）。
+///   TREQ_BENCH_WORKSPACE=~/Documents/treq cargo test -p treq-core --test store_test -- --ignored bench_load
+#[test]
+#[ignore]
+fn bench_load_real_workspace() {
+    let Ok(root) = std::env::var("TREQ_BENCH_WORKSPACE") else {
+        eprintln!("跳过：没设 TREQ_BENCH_WORKSPACE");
+        return;
+    };
+    let store = treq_core::store::WorkspaceStore::new(std::path::PathBuf::from(root));
+
+    let t = std::time::Instant::now();
+    store.ensure_root().unwrap();
+    eprintln!("ensure_root: {} ms", t.elapsed().as_millis());
+
+    let t = std::time::Instant::now();
+    let ws = store.load().unwrap();
+    let load_ms = t.elapsed().as_millis();
+
+    let n_req: usize = ws.collections.iter().map(|c| c.requests.len()).sum::<usize>()
+        + ws
+            .collections
+            .iter()
+            .flat_map(|c| c.groups.iter())
+            .map(|g| g.requests.len())
+            .sum::<usize>();
+    eprintln!(
+        "store.load(): {load_ms} ms（{} 集合 / {n_req} 请求 / {} 环境）",
+        ws.collections.len(),
+        ws.environments.len()
+    );
+}

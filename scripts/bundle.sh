@@ -42,6 +42,15 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>LSMinimumSystemVersion</key><string>12.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSPrincipalClass</key><string>NSApplication</string>
+  <!-- 隐私用途说明：工作区默认在 ~/Documents/treq，缺这条时 macOS 会在
+       运行时拦截访问（open() 阻塞）并弹「想访问文稿」——启动看起来就是卡死。
+       同一个原因，桌面上放着工作区也要 NSDesktopFolderUsageDescription。 -->
+  <key>NSDocumentsFolderUsageDescription</key>
+  <string>treq 需要读取「文稿」里的工作区（默认 ~/Documents/treq：集合、请求、环境变量都是普通文件）。</string>
+  <key>NSDesktopFolderUsageDescription</key>
+  <string>工作区放在桌面时需要读取桌面文件。</string>
+  <key>NSDownloadsFolderUsageDescription</key>
+  <string>导入接口文件（Postman / OpenAPI / HAR）或保存响应到「下载」时需要访问下载文件夹。</string>
 </dict>
 </plist>
 PLIST

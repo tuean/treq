@@ -205,6 +205,26 @@ python3 scripts/mock_server.py    # 本地 mock 服务：127.0.0.1:8321
 > rustfmt --edition 2024 crates/treq-app/src/theme.rs crates/treq-app/src/i18n.rs
 > ```
 
+### 首次打开 macOS 会问「访问文稿」——那一下界面看着像卡死
+
+工作区默认在 `~/Documents/treq`，属于 macOS 的**受保护目录**。首次打开时系统会弹
+「treq 想访问文稿文件夹」，**在点「允许」之前，`open()` 会一直阻塞在主线程**——此时窗口
+还没画出来，看起来就是「一打开就失去响应」。这是系统行为，不是死循环：
+
+- 症状特征：进程 CPU ~0%、窗口不出现、点允许后立刻正常
+- **授权一次即永久有效**：之后启动都是几十毫秒（实测 109 秒 → 96 毫秒）
+- 前提是 app 的 `Info.plist` 里有 `NSDocumentsFolderUsageDescription`（`bundle.sh` 已加）。
+  缺这条时系统仍会拦，只是不会给你一个说明用途的弹窗
+- 想彻底不弹：把工作区放在不受保护的位置（如 `~/Library/Application Support/com.treq.app/workspace`
+  或家目录下的普通目录），图标 → 切换工作区即可
+
+排查启动慢的一段，设上环境变量就会在 stderr 打分段耗时（默认完全静默）：
+
+```bash
+TREQ_STARTUP_LOG=1 open --env TREQ_STARTUP_LOG=1 -W /Applications/treq.app
+# 正常：各段 0~200 ms；某段上千毫秒 → 那一段在等外部（最典型就是上面那个授权）
+```
+
 ### 推代码到 GitHub（网络不通时怎么办）
 
 **平时不用配代理**，`git push` 正常走系统网络。只有 `github.com:443` 连不上时才需要临时代理：

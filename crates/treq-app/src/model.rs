@@ -156,6 +156,30 @@ pub fn rename_caret_range(len: usize, select_all: bool) -> std::ops::Range<usize
     if select_all { 0..len } else { len..len }
 }
 
+/// 启动分段计时：**只有设了 `TREQ_STARTUP_LOG` 才输出**，平时一行不打。
+///
+/// 为「打开就卡住」这类问题留的观测口：正常启动各段都是 0~200ms，
+/// 若某段上千毫秒，基本就是那一段在等外部（最典型是 macOS 首次访问「文稿」等授权）。
+struct StartupLog {
+    on: bool,
+    t0: std::time::Instant,
+}
+
+impl StartupLog {
+    fn new() -> Self {
+        Self {
+            on: std::env::var_os("TREQ_STARTUP_LOG").is_some(),
+            t0: std::time::Instant::now(),
+        }
+    }
+
+    fn mark(&self, what: &str) {
+        if self.on {
+            eprintln!("[treq startup] {what}: {} ms", self.t0.elapsed().as_millis());
+        }
+    }
+}
+
 /// 行内重命名状态。
 pub struct RenameState {
     pub target: Selection,
@@ -794,7 +818,11 @@ impl AppModel {
     }
 
     pub fn new(cx: &mut Context<Self>) -> Self {
+        // 启动分段计时：排查「打开就卡住」时设 TREQ_STARTUP_LOG=1 看哪一段慢
+        // （默认完全静默；macOS 首次访问「文稿」要等系统授权，那一等会体现在 store.load 上）
+        let startup = StartupLog::new();
         let settings = settings::load();
+        startup.mark("settings::load");
         let tree_w = settings.tree_width.unwrap_or(theme::DEFAULT_TREE_W);
         let panel_w = settings.panel_width.unwrap_or(theme::DEFAULT_PANEL_W);
         let sse_show_time = settings.sse_show_time.unwrap_or(true);
@@ -941,12 +969,18 @@ impl AppModel {
             &settings::font_mono(&m.settings),
             settings::font_mono_size(&m.settings),
         );
+        startup.mark("构造 AppModel（含 history 库打开）");
         m.reload();
+        startup.mark("reload（读工作区）");
         // 恢复上次打开的请求（找不到就退回第一个），右侧编辑器直接展示内容
         m.restore_last_request(cx);
+        startup.mark("restore_last_request");
         m.auto_select_first();
+        startup.mark("auto_select_first");
         m.load_history(cx);
+        startup.mark("load_history");
         m.start_auto_backup();
+        startup.mark("AppModel 就绪");
         m
     }
 
@@ -960,12 +994,24 @@ impl AppModel {
     }
 
     pub fn reload(&mut self) {
+        // 这一段最可能慢：macOS 首次访问「文稿」时 open() 会一直等系统授权
+        let t = std::time::Instant::now();
         self.store.ensure_root().ok();
+        let ensure = t.elapsed().as_millis();
         if let Ok(ws) = self.store.load() {
             self.workspace = ws;
         }
+        let load = t.elapsed().as_millis();
         self.fields = EditorFields::new();
         self.refresh_last_status();
+        let total = t.elapsed().as_millis();
+        if std::env::var_os("TREQ_STARTUP_LOG").is_some() {
+            eprintln!(
+                "[treq startup]   reload：ensure_root {ensure} ms / store.load {} ms（其余 {} ms）",
+                load - ensure,
+                total - load
+            );
+        }
     }
 
     /// 启动/切工作区时恢复上次打开的请求（连同它的历史记录一起加载）。
