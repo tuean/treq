@@ -1812,6 +1812,16 @@ impl AppModel {
         cx.notify();
     }
 
+    /// 退出改名并**丢弃**这次编辑（Esc）。
+    ///
+    /// 与「点别处 / 回车」的 [`AppModel::commit_rename`] 相对：那两个是提交，
+    /// 这个是不改任何东西地退出（名字里带空格的临时输入不该被 Esc 顺手存下来）。
+    pub fn cancel_rename(&mut self, cx: &mut Context<Self>) {
+        if self.rename.take().is_some() {
+            cx.notify();
+        }
+    }
+
     pub fn commit_rename(&mut self, target: &Selection, cx: &mut Context<Self>) {
         let Some(state) = self.rename.take() else {
             return;
@@ -2753,13 +2763,22 @@ impl Render for AppModel {
         }
         // 滚动条画在最上层（延迟绘制，压在正文/菜单之上）
         root = root.child(self.scrollbars_layer(cx));
-        // 改名框刚出现：把键盘焦点放进去（新建后直接能打字）
-        if let Some(state) = self.rename.as_mut()
-            && state.focus
-        {
-            state.focus = false;
-            let handle = state.field.read(cx).focus_handle.clone();
-            window.focus(&handle);
+        // 改名框的焦点：刚出现那帧把焦点放进去（新建/双击后直接能打字）；
+        // 之后一旦失焦（点了别处、Tab 走了、窗口切走）就提交并退出编辑态 ——
+        // 不能让输入框留在树上「看不见但还在改」。
+        if let Some(state) = self.rename.as_mut() {
+            if state.focus {
+                state.focus = false;
+                let handle = state.field.read(cx).focus_handle.clone();
+                window.focus(&handle);
+            } else {
+                let (field, target) = (state.field.clone(), state.target.clone());
+                let still_focused = field.read(cx).focus_handle.is_focused(window);
+                if !still_focused {
+                    // 点别处 = 确认改名（与 Finder / VS Code 的行内改名一致）
+                    self.commit_rename(&target, cx);
+                }
+            }
         }
         root
     }

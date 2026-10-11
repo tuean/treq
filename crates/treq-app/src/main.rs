@@ -252,7 +252,11 @@ fn main() {
         let handle = entity.clone();
         cx.on_action(move |_: &QuickClose, cx| {
             handle.update(cx, |m, cx| {
-                if m.move_dialog.is_some() {
+                // Esc 优先级最高的是「退出行内改名」：正在改名的输入框其实收不到 Esc
+                // （gpui 先派发 action、后走 on_key_down），所以在这里先接住。
+                if m.rename.is_some() {
+                    m.cancel_rename(cx);
+                } else if m.move_dialog.is_some() {
                     m.close_move_dialog(cx);
                 } else if m.url_dialog {
                     m.close_url_dialog(cx);

@@ -112,6 +112,8 @@ impl AppModel {
             .is_some_and(|t| t.at == row.at && t.zone == crate::model::DropZone::Inside);
         let label = SharedString::from(label);
         let method = SharedString::from(method);
+        // 正在改名的这一行只剩输入框：不该再挂选中/双击改名/右键这些处理器，
+        // 否则在输入框里点击会顺带把这次改名又提交一次。
         if row.renaming
             && let Some(RenameState { field, .. }) = &self.rename
         {
