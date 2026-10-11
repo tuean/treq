@@ -259,11 +259,8 @@ pub fn backup_keep(settings: &Settings) -> usize {
 
 impl Default for Settings {
     fn default() -> Self {
-        let root = dirs::document_dir()
-            .unwrap_or_else(std::env::temp_dir)
-            .join("treq");
         Settings {
-            workspace_root: root,
+            workspace_root: default_workspace(),
             locale: "zh".into(),
             active_environment_id: None,
             tree_width: None,
@@ -288,18 +285,29 @@ impl Default for Settings {
     }
 }
 
-fn path() -> PathBuf {
+/// app 的数据目录（`~/Library/Application Support/com.treq.app`）。
+pub fn data_dir() -> PathBuf {
     dirs::data_dir()
         .unwrap_or_else(std::env::temp_dir)
         .join("com.treq.app")
-        .join("settings.toml")
+}
+
+/// 默认工作区：放在 app 自己的数据目录里。
+///
+/// **故意不放 `~/Documents`**：那是 macOS 受保护目录，首次访问会拦在 `open()` 上等
+/// 用户点「允许」，而这一下发生在窗口画出来之前 —— 表现就是「一打开就失去响应」。
+/// 放这里既不触发隐私授权，也跟 settings/cookies/history 待在一起。
+pub fn default_workspace() -> PathBuf {
+    data_dir().join("workspace")
+}
+
+fn path() -> PathBuf {
+    data_dir().join("settings.toml")
 }
 
 /// cookie 罐落盘位置（跟 settings 同目录，JSON 方便手查）。
 pub fn cookie_path() -> PathBuf {
-    dirs::data_dir()
-        .unwrap_or_else(std::env::temp_dir)
-        .join("com.treq.app")
+    data_dir()
         .join("cookies.json")
 }
 
