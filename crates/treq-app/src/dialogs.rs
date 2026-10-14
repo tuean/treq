@@ -2197,7 +2197,7 @@ impl AppModel {
                     }
                 },
             ));
-        widgets::backdrop(widgets::modal(widgets::ModalSpec {
+        widgets::backdrop_elevated(widgets::modal(widgets::ModalSpec {
             title: SharedString::from(self.t("action.convert_to_space")),
             width: px(460.),
             content: card,

@@ -2198,6 +2198,24 @@ pub fn backdrop(child: impl IntoElement) -> AnyElement {
     .into_any()
 }
 
+/// 比菜单更高的模态遮罩：**右键菜单是 deferred priority 20**，普通 [`backdrop`]（10）
+/// 会被菜单压在下面 —— 看起来「菜单能用」，其实点下去打的是菜单那一层。
+/// 需要「模态期间绝不能被菜单盖住」的对话框用这个（确认类弹窗都该用）。
+pub fn backdrop_elevated(child: impl IntoElement) -> AnyElement {
+    gpui::deferred(
+        div()
+            .absolute()
+            .size_full()
+            .bg(theme::bg_backdrop())
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(child),
+    )
+    .with_priority(25)
+    .into_any()
+}
+
 // ---- 常显竖滚动条 -----------------------------------------------------------
 // gpui 0.2.2 的滚动容器只给滚动条「留位置」不画条（style.scrollbar_width 只影响布局），
 // 所以这里自己画一根：延迟绘制（压在所有内容之上），prepaint 阶段读滚动状态

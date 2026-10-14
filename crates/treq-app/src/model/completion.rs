@@ -457,6 +457,9 @@ impl AppModel {
             return;
         } else if self.popup.open {
             self.popup.close();
+        } else if self.convert_dialog.is_some() {
+            self.close_convert_space_dialog(cx);
+            return;
         } else if self.save_var_dialog.is_some() {
             self.close_save_var_dialog(cx);
             return;

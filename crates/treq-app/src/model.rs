@@ -1416,6 +1416,15 @@ impl AppModel {
             cx.notify();
             return;
         }
+        // 切空间前收掉属于旧空间的弹层（改名框、确认框、各种草稿对话框）：
+        // 它们的状态都绑定在旧空间的数据上，留着就是「看不见但还在」。
+        self.rename = None;
+        self.convert_dialog = None;
+        self.move_dialog = None;
+        self.save_var_dialog = None;
+        self.import_dialog = None;
+        self.url_dialog = false;
+        self.kv_zoom = None;
         // 已经登记过的空间用它的友好名（set_active_workspace 会按目录名重写，别让它覆盖掉）
         let friendly = self
             .settings

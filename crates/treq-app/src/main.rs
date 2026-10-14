@@ -264,6 +264,8 @@ fn main() {
                     m.close_space_palette(cx);
                 } else if m.rename.is_some() {
                     m.cancel_rename(cx);
+                } else if m.convert_dialog.is_some() {
+                    m.close_convert_space_dialog(cx);
                 } else if m.move_dialog.is_some() {
                     m.close_move_dialog(cx);
                 } else if m.url_dialog {
