@@ -487,3 +487,62 @@ fn bench_load_real_workspace() {
         ws.environments.len()
     );
 }
+
+/// 「分组 → 单独空间」：整棵子树（含子分组的请求）要完整搬过去，源侧删干净。
+#[test]
+fn move_group_to_another_workspace_carries_the_whole_subtree() {
+    let src = std::env::temp_dir().join(format!("treq-movegs-src-{}", std::process::id()));
+    let dst = std::env::temp_dir().join(format!("treq-movegs-dst-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&src);
+    let _ = std::fs::remove_dir_all(&dst);
+    let s = WorkspaceStore::new(src.clone());
+    s.ensure_root().unwrap();
+    let d = WorkspaceStore::new(dst.clone());
+    d.ensure_root().unwrap();
+
+    // 源空间：集合 → 顶层分组「产品A」（2 个请求）+ 子分组（1 个请求）
+    let col = s.create_collection("基础").unwrap();
+    let top = s.create_group(&col.id, "产品A", None).unwrap();
+    s.create_request_in(&col.id, Some(&top.id), "顶层一").unwrap();
+    s.create_request_in(&col.id, Some(&top.id), "顶层二").unwrap();
+    let sub = s.create_group(&col.id, "子分组", Some(top.id.clone())).unwrap();
+    s.create_request_in(&col.id, Some(&sub.id), "子一").unwrap();
+
+    let (new_col, reqs, subs) = s.move_group_to_workspace(&top.id, &dst).unwrap();
+    assert_eq!((reqs, subs), (3, 1), "要数到顶层 2 + 子分组 1 = 3 个请求、1 个子分组");
+
+    // 新空间：一个同名集合，分组提为顶层（parent 必须清空）
+    let loaded = d.load().unwrap();
+    assert_eq!(loaded.collections.len(), 1);
+    let c = &loaded.collections[0];
+    assert_eq!(c.id, new_col);
+    assert_eq!(c.name, "产品A");
+    // 分组在磁盘上是平铺的：顶层 + 子分组都在这一个列表里，层级看 parent
+    assert_eq!(c.groups.len(), 2, "整棵子树都该搬过来（顶层 + 子分组）");
+    let g = c.groups.iter().find(|g| g.id == top.id).expect("顶层分组");
+    assert!(g.parent.is_none(), "换空间后子树根的 parent 要清空（父级留在原空间）");
+    assert_eq!(g.requests.len(), 2);
+    assert_eq!(g.requests[0].name, "顶层一");
+    assert_eq!(g.requests[1].name, "顶层二");
+    let sg = c
+        .groups
+        .iter()
+        .find(|g| g.id == sub.id)
+        .expect("子分组也要跟过来");
+    assert_eq!(sg.parent.as_deref(), Some(top.id.as_str()), "子分组的层级保持");
+    assert_eq!(sg.requests.len(), 1);
+    assert_eq!(sg.requests[0].name, "子一");
+
+    // 源空间：这个分组整棵被删掉，集合还在
+    let src_loaded = s.load().unwrap();
+    assert_eq!(src_loaded.collections.len(), 1);
+    assert_eq!(src_loaded.collections[0].id, col.id);
+    assert!(
+        src_loaded.collections[0].groups.is_empty(),
+        "源空间里整棵子树都该删掉（顶层与子分组）"
+    );
+    assert!(!src.join(format!("collections/{}/groups/{}", col.id, top.id)).exists());
+
+    let _ = std::fs::remove_dir_all(&src);
+    let _ = std::fs::remove_dir_all(&dst);
+}

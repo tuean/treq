@@ -2126,6 +2126,86 @@ impl AppModel {
         )
     }
 
+    /// 「转为单独空间」确认框：可改空间名，实时显示落点路径；确认后搬数据并切过去。
+    pub(crate) fn convert_space_dialog_render(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let Some(dlg) = &self.convert_dialog else {
+            return div().into_any();
+        };
+        let name_field = dlg.name.clone();
+        let path = dlg.path.display().to_string();
+        let error = dlg.error.clone();
+        let mut card = div()
+            .px(theme::sp4())
+            .py(theme::sp4())
+            .flex()
+            .flex_col()
+            .gap(theme::sp3())
+            .child(
+                div()
+                    .text_size(px(theme::font_small()))
+                    .text_color(theme::fg_dim())
+                    .child(self.t("space.convert.hint")),
+            )
+            .child(name_field.clone())
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(theme::sp1())
+                    .child(setting_label(self.t("space.convert.path")))
+                    .child(
+                        div()
+                            .text_size(px(theme::font_small()))
+                            .font(theme::mono())
+                            .text_color(theme::fg_dim())
+                            .truncate()
+                            .child(SharedString::from(path)),
+                    ),
+            );
+        if let Some(e) = error {
+            card = card.child(
+                div()
+                    .text_size(px(theme::font_small()))
+                    .text_color(theme::red())
+                    .child(SharedString::from(e)),
+            );
+        }
+        let footer = div()
+            .flex()
+            .gap(theme::sp3())
+            .child(
+                div()
+                    .id("convert-cancel")
+                    .h(theme::control_h())
+                    .flex()
+                    .items_center()
+                    .px(theme::sp3())
+                    .text_size(px(theme::font_body()))
+                    .text_color(theme::fg_dim())
+                    .cursor_pointer()
+                    .hover(|d| d.text_color(theme::fg_normal()))
+                    .child(self.t("action.cancel"))
+                    .on_click(cx.listener(|this, _, _w, cx| this.close_convert_space_dialog(cx))),
+            )
+            .child(widgets::btn(
+                SharedString::from(self.t("space.convert.confirm")),
+                widgets::BtnVariant::Accent,
+                {
+                    let handle = cx.entity();
+                    move |_, _w, app| {
+                        handle.update(app, |this, c| this.confirm_convert_space(c));
+                    }
+                },
+            ));
+        widgets::backdrop(widgets::modal(widgets::ModalSpec {
+            title: SharedString::from(self.t("action.convert_to_space")),
+            width: px(460.),
+            content: card,
+            footer,
+        }))
+        .into_any()
+    }
+
     pub(crate) fn import_dialog_render(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let Some(dlg) = &self.import_dialog else {
             return div().into_any();

@@ -296,6 +296,117 @@ impl WorkspaceStore {
         Err(anyhow!("找不到分组目录：{group_id}"))
     }
 
+    /// 递归复制一个目录树（跨卷也能用；`fs::rename` 跨设备会失败）。
+    fn copy_tree(from: &Path, to: &Path) -> Result<()> {
+        fs::create_dir_all(to)?;
+        for entry in fs::read_dir(from)? {
+            let entry = entry?;
+            let src = entry.path();
+            let dst = to.join(entry.file_name());
+            if entry.file_type()?.is_dir() {
+                Self::copy_tree(&src, &dst)?;
+            } else {
+                fs::copy(&src, &dst)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// **把一个分组整体搬到另一个工作区**（「转为单独空间」）。
+    ///
+    /// 语义：目标空间里建一个同名集合承载它，这个分组提为顶层；源空间里整棵子树删掉。
+    /// 用「复制 → 删源」而不是 `rename`：两个空间可能在不同卷上。
+    ///
+    /// ⚠️ 分组在磁盘上是**平铺**的（`collections/<cid>/groups/<gid>/`），层级只写在
+    /// `group.yml` 的 `parent` 里 —— 所以不能只搬一个目录，必须按 parent 关系先把
+    /// **整棵子树**找出来，逐个目录复制，否则子分组会留在源空间（等于丢数据）。
+    ///
+    /// 返回：新集合 id、（请求数, 分组数）——给界面报数用。
+    pub fn move_group_to_workspace(
+        &self,
+        group_id: &str,
+        new_root: &Path,
+    ) -> Result<(String, usize, usize)> {
+        let from = self.find_group_dir(group_id)?;
+        let src_col_dir = from
+            .parent()
+            .and_then(|p| p.parent())
+            .ok_or_else(|| anyhow!("分组目录结构异常：{}", from.display()))?;
+        let groups_dir = src_col_dir.join("groups");
+
+        // 1) 列出源集合里所有分组（id → (目录, Group)），据此找子树
+        let mut all: HashMap<String, (PathBuf, Group)> = HashMap::new();
+        for e in fs::read_dir(&groups_dir)? {
+            let e = e?;
+            if !e.file_type()?.is_dir() {
+                continue;
+            }
+            let meta = e.path().join("group.yml");
+            if !meta.is_file() {
+                continue;
+            }
+            let g: Group = serde_yaml::from_str(&fs::read_to_string(&meta)?)
+                .with_context(|| format!("bad group.yml in {}", e.path().display()))?;
+            all.insert(g.id.clone(), (e.path(), g));
+        }
+        let root_group = all
+            .get(group_id)
+            .map(|(_, g)| g.clone())
+            .ok_or_else(|| anyhow!("找不到分组：{group_id}"))?;
+
+        // 2) 广度优先收集子树（自己 + 所有后代）
+        let mut subtree = vec![group_id.to_string()];
+        let mut i = 0;
+        while i < subtree.len() {
+            let cur = subtree[i].clone();
+            i += 1;
+            for (id, (_, g)) in all.iter() {
+                if g.parent.as_deref() == Some(cur.as_str()) {
+                    subtree.push(id.clone());
+                }
+            }
+        }
+
+        // 3) 目标空间：新集合（名字沿用分组名），子树的目录逐个复制过去
+        let new_col_id = new_id();
+        let col_dir = new_root.join(format!("collections/{new_col_id}"));
+        let dst_groups = col_dir.join("groups");
+        fs::create_dir_all(col_dir.join("requests"))?;
+        fs::create_dir_all(&dst_groups)?;
+        let mut reqs = 0usize;
+        for gid in &subtree {
+            let Some((dir, g)) = all.get(gid) else {
+                continue;
+            };
+            reqs += read_requests(&dir.join("requests"))?.len();
+            let dst = dst_groups.join(gid);
+            Self::copy_tree(dir, &dst)?;
+            // 层级重接：子树根清空 parent（父级留在了原空间），其余保持原 parent
+            let mut g2 = g.clone();
+            if gid == group_id {
+                g2.parent = None;
+            }
+            fs::write(dst.join("group.yml"), serde_yaml::to_string(&g2)?)?;
+        }
+        let col = Collection {
+            id: new_col_id.clone(),
+            name: root_group.name.clone(),
+            groups: Vec::new(),
+            requests: Vec::new(),
+        };
+        fs::write(col_dir.join("collection.yml"), serde_yaml::to_string(&col)?)?;
+
+        // 4) 源空间删掉整棵子树
+        for gid in &subtree {
+            if let Some((dir, _)) = all.get(gid) {
+                fs::remove_dir_all(dir)?;
+                self.index_purge_prefix(dir);
+            }
+        }
+        let subs = subtree.len().saturating_sub(1);
+        Ok((new_col_id, reqs, subs))
+    }
+
     /// 分组换父级 / 换集合：整目录搬过去，层级写回 group.yml 的 `parent`。
     pub fn set_group_parent(
         &self,

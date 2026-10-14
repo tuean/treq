@@ -586,6 +586,11 @@ impl AppModel {
     }
 
     pub fn quick_move(&mut self, delta: isize, cx: &mut Context<Self>) {
+        // 空间切换器开着时，↑↓ 先归它（与命令面板共用这两个方向键动作）
+        if self.space_palette.is_some() {
+            self.space_move_selection(delta, cx);
+            return;
+        }
         if self.quick.is_none() && self.move_dialog.is_some() {
             self.move_move(delta, cx);
             return;
@@ -748,6 +753,115 @@ impl AppModel {
                     .text_size(px(theme::font_small()))
                     .text_color(theme::fg_dark())
                     .child(self.t("quick.hint_all_ws")),
+            )
+            .child(div().border_t_1().border_color(theme::border()).child(rows))
+            .into_any()
+    }
+
+    /// 空间快速切换器（⌘⇧K）：与命令面板同款外观，列表是「● 空间名 · 目录名」。
+    pub(crate) fn space_palette_render(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let Some(p) = &self.space_palette else {
+            return div().into_any();
+        };
+        let field = p.field.clone();
+        // 打开后自动聚焦输入框（渲染阶段做，actor 没有 window）
+        if !field.read(cx).focus_handle.is_focused(window) {
+            field.update(cx, |f, _| f.focus_handle.focus(window));
+        }
+        let list = p.list.clone();
+        let selected = p.selected;
+        let w = window.bounds().size.width.to_f64() as f32;
+        let panel_w = 520f32.min(w - 80.0);
+        let panel_x = ((w - panel_w) / 2.0).max(20.0);
+        let bar = self.scroll_handle("space-rows");
+        let mut rows = div()
+            .id("space-rows")
+            .flex_col()
+            .py(theme::sp2())
+            .overflow_scroll()
+            .track_scroll(&bar)
+            .max_h(px(360.));
+        for (i, (_, label)) in list.iter().enumerate() {
+            rows = rows.child(
+                div()
+                    .id(SharedString::from(format!("space/{}", i)))
+                    .h(theme::row_h())
+                    .flex()
+                    .items_center()
+                    .px(theme::sp4())
+                    .cursor_pointer()
+                    .text_size(px(theme::font_body()))
+                    .when(i == selected, |d| {
+                        d.relative()
+                            .bg(theme::bg_selected_accent())
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(
+                                div()
+                                    .absolute()
+                                    .left(px(0.))
+                                    .top(px(0.))
+                                    .h_full()
+                                    .w(px(2.))
+                                    .bg(theme::primary()),
+                            )
+                    })
+                    .when(i != selected, |d| d.hover(|d| d.bg(theme::bg_hover())))
+                    .text_color(if i == selected {
+                        theme::fg_white()
+                    } else {
+                        theme::fg_normal()
+                    })
+                    .truncate()
+                    .child(SharedString::from(label))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, _, _w, cx| {
+                            this.space_set_selected(i, cx);
+                            this.space_pick_selected(cx);
+                        }),
+                    ),
+            );
+        }
+        if list.is_empty() {
+            rows = rows.child(
+                div()
+                    .px(theme::sp4())
+                    .py(theme::sp3())
+                    .text_size(px(theme::font_body()))
+                    .text_color(theme::fg_dark())
+                    .child(self.t("space.switch.empty")),
+            );
+        }
+        div()
+            .absolute()
+            .left(px(panel_x))
+            .top(px(80.))
+            .w(px(panel_w))
+            .bg(theme::bg_popup())
+            .border_1()
+            .border_color(theme::border_strong())
+            .rounded_lg()
+            .shadow_lg()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .px(theme::sp4())
+                    .pt(theme::sp3())
+                    .pb(theme::sp2())
+                    .child(field.clone()),
+            )
+            .child(
+                div()
+                    .px(theme::sp4())
+                    .pb(theme::sp2())
+                    .text_size(px(theme::font_small()))
+                    .text_color(theme::fg_dark())
+                    .child(self.t("space.switch.hint")),
             )
             .child(div().border_t_1().border_color(theme::border()).child(rows))
             .into_any()

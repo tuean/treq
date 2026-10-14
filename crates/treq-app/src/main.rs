@@ -16,7 +16,7 @@ use gpui::*;
 use model::{
     AppModel, BackupNow, ChooseWorkspace, DuplicateRequest, FocusResponseFilter, ImportFile,
     NavBack, NavForward, OpenPrefs, QuickClose, QuickDown, QuickSwitch, QuickUp, Quit, Reload,
-    RestoreBackup, SendNow, ToggleLocale,
+    RestoreBackup, SendNow, SpaceSwitch, ToggleLocale,
 };
 
 /// 崩溃时把 panic 信息写进 settings 同目录的 panic.log。
@@ -138,6 +138,8 @@ fn main() {
             // 快速查找：⌘K / ⌃K 都认
             KeyBinding::new("ctrl-k", QuickSwitch, None),
             KeyBinding::new("cmd-k", QuickSwitch, None),
+            // 空间快速切换器：⌘⇧K（与命令面板同一个家族的手感）
+            KeyBinding::new("cmd-shift-k", SpaceSwitch, None),
             // 重发（流式进行中＝停止）
             KeyBinding::new("cmd-r", SendNow, None),
             // 复制为新请求 / 响应过滤条 / 偏好菜单
@@ -250,11 +252,17 @@ fn main() {
             handle.update(cx, |m, cx| m.open_quick(cx));
         });
         let handle = entity.clone();
+        cx.on_action(move |_: &SpaceSwitch, cx| {
+            handle.update(cx, |m, cx| m.open_space_palette(cx));
+        });
+        let handle = entity.clone();
         cx.on_action(move |_: &QuickClose, cx| {
             handle.update(cx, |m, cx| {
                 // Esc 优先级最高的是「退出行内改名」：正在改名的输入框其实收不到 Esc
                 // （gpui 先派发 action、后走 on_key_down），所以在这里先接住。
-                if m.rename.is_some() {
+                if m.space_palette.is_some() {
+                    m.close_space_palette(cx);
+                } else if m.rename.is_some() {
                     m.cancel_rename(cx);
                 } else if m.move_dialog.is_some() {
                     m.close_move_dialog(cx);

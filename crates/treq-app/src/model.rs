@@ -318,6 +318,28 @@ pub struct QuickPalette {
     pub selected: usize,
 }
 
+/// 「把分组转为单独空间」的确认弹窗。
+///
+/// 这是会动数据的操作（把分组请求**搬进**新空间、原处删掉），所以先弹一次确认，
+/// 并且把落点路径写出来让人看清搬到哪儿。
+pub struct ConvertSpaceDialog {
+    pub group_id: String,
+    /// 新空间名（默认取分组名，可改）
+    pub name: Entity<TextField>,
+    /// 落点目录（随名字实时算，只读展示）
+    pub path: PathBuf,
+    pub error: Option<String>,
+}
+
+/// 空间快速切换器（⌘⇧K）：输入即过滤，↑↓ 选、回车切。
+pub struct SpacePalette {
+    pub field: Entity<TextField>,
+    pub query: String,
+    /// (空间路径, 显示标签)
+    pub list: Vec<(PathBuf, String)>,
+    pub selected: usize,
+}
+
 #[derive(Clone, PartialEq)]
 pub enum QuickTarget {
     History(i64),
@@ -622,6 +644,7 @@ pub struct AppModel {
     pub cross_index: Vec<CrossHit>,
     pub history_store: HistoryStore,
     pub import_dialog: Option<ImportDialog>,
+    pub convert_dialog: Option<ConvertSpaceDialog>,
     pub net_dialog: Option<NetDialog>,
     /// 配置页（设置）打开时的 tab
     pub settings_page: Option<SettingsTab>,
@@ -663,6 +686,7 @@ pub struct AppModel {
     pub collapsed: HashSet<String>,
     /// Ctrl+K 命令面板
     pub quick: Option<QuickPalette>,
+    pub space_palette: Option<SpacePalette>,
     /// 当前窗口标题缓存（避免每帧重复设置平台标题）
     pub last_window_title: String,
     /// KV 行描述是否展开（Insomnia 的 Toggle Description）
@@ -675,6 +699,7 @@ pub struct AppModel {
     pub env_drafts: HashMap<String, Vec<(String, String)>>,
     /// 关闭命令面板时保留的搜索词
     pub quick_query: String,
+    pub space_query: String,
     /// 「存为变量」对话框
     pub save_var_dialog: Option<SaveVarDialog>,
     /// 「移动到…」选择器
@@ -905,6 +930,7 @@ impl AppModel {
                 HistoryStore::open(std::env::temp_dir().join("treq-history.db")).unwrap()
             }),
             import_dialog: None,
+            convert_dialog: None,
             net_dialog: None,
             settings_page: None,
             style_preview: None,
@@ -918,6 +944,7 @@ impl AppModel {
             last_status: HashMap::new(),
             collapsed: HashSet::new(),
             quick: None,
+            space_palette: None,
             last_window_title: String::new(),
             kv_show_desc: false,
             import_draft: String::new(),
@@ -925,6 +952,7 @@ impl AppModel {
             timeout_draft: String::new(),
             env_drafts: HashMap::new(),
             quick_query: String::new(),
+            space_query: String::new(),
             save_var_dialog: None,
             move_dialog: None,
             resp_filter: String::new(),
@@ -1388,7 +1416,18 @@ impl AppModel {
             cx.notify();
             return;
         }
-        self.settings.set_active_workspace(path);
+        // 已经登记过的空间用它的友好名（set_active_workspace 会按目录名重写，别让它覆盖掉）
+        let friendly = self
+            .settings
+            .workspaces
+            .iter()
+            .find(|w| w.path == path)
+            .map(|w| w.name.clone())
+            .unwrap_or_else(|| {
+                crate::settings::space_dir_name(&path.to_string_lossy())
+            });
+        self.settings.set_active_workspace(path.clone());
+        self.settings.register_space(path, &friendly);
         settings::save(&self.settings).ok();
         self.store = WorkspaceStore::new(self.settings.workspace_root.clone());
         self.sync_backup_cfg();
@@ -1463,6 +1502,7 @@ impl AppModel {
                 )
             })
             .collect();
+        items.push(("ws-switch".into(), self.t("space.switch.menu").to_string()));
         items.push(("ws-add".into(), self.t("workspace.add").to_string()));
         if self.settings.workspaces.len() > 1 {
             items.push((
@@ -2111,6 +2151,122 @@ impl AppModel {
         );
     }
 
+    // ---- 分组 → 单独空间 ----
+    /// 右键「转为单独空间…」：先弹确认框（会把分组请求搬进新空间、原处删掉）。
+    pub fn open_convert_space_dialog(&mut self, group_id: String, cx: &mut Context<Self>) {
+        let group = self
+            .workspace
+            .collections
+            .iter()
+            .flat_map(|c| c.groups.iter())
+            .find(|g| g.id == group_id)
+            .cloned();
+        let Some(group) = group else {
+            return;
+        };
+        let name = group.name.clone();
+        let handle = cx.entity();
+        let field = TextField::new(
+            name.clone().into(),
+            SharedString::from(self.t("space.name.placeholder")),
+            // 改名字 → 落点路径跟着重算（确认框里实时显示搬到哪儿）
+            {
+                let h = handle.clone();
+                Arc::new(move |s: &str, app: &mut App| {
+                    let s = s.to_string();
+                    h.update(app, |this, cx| this.convert_space_set_name(s.clone(), cx));
+                })
+            },
+            cx,
+        );
+        field.update(cx, |f, _| {
+            f.on_submit = Some(Arc::new(move |_window, app| {
+                let h = handle.clone();
+                app.defer(move |app| h.update(app, |this, cx| this.confirm_convert_space(cx)));
+            }));
+        });
+        self.popup.close();
+        self.convert_dialog = Some(ConvertSpaceDialog {
+            group_id,
+            name: field,
+            path: settings::space_path_for(&name),
+            error: None,
+        });
+        cx.notify();
+    }
+
+    pub fn close_convert_space_dialog(&mut self, cx: &mut Context<Self>) {
+        self.convert_dialog = None;
+        cx.notify();
+    }
+
+    /// 输入框每次变化：把落点路径跟着名字重算（让人看清搬到哪儿）。
+    pub fn convert_space_set_name(&mut self, name: String, cx: &mut Context<Self>) {
+        let path = settings::space_path_for(&name);
+        if let Some(d) = self.convert_dialog.as_mut() {
+            d.path = path;
+        }
+        cx.notify();
+    }
+
+    /// 确认：建空间目录 → 把分组整棵子树搬过去 → 登记并切到新空间。
+    pub fn confirm_convert_space(&mut self, cx: &mut Context<Self>) {
+        let Some(dlg) = self.convert_dialog.take() else {
+            return;
+        };
+        let name = dlg.name.read(cx).content.trim().to_string();
+        if name.is_empty() {
+            self.convert_dialog = Some(ConvertSpaceDialog {
+                error: Some(self.t("space.name.empty").to_string()),
+                ..dlg
+            });
+            cx.notify();
+            return;
+        }
+        let path = settings::space_path_for(&name);
+        // 新空间目录必须先立起来（store.load 读不到 collections/ 会当空空间）
+        if let Err(e) = WorkspaceStore::new(path.clone()).ensure_root() {
+            self.convert_dialog = Some(ConvertSpaceDialog {
+                error: Some(format!("{}: {e}", self.t("space.create_failed"))),
+                path,
+                ..dlg
+            });
+            cx.notify();
+            return;
+        }
+        let (reqs, subs) = match self
+            .store
+            .move_group_to_workspace(&dlg.group_id, &path)
+        {
+            Ok((_col, reqs, subs)) => (reqs, subs),
+            Err(e) => {
+                self.convert_dialog = Some(ConvertSpaceDialog {
+                    error: Some(format!("{}: {e}", self.t("space.move_failed"))),
+                    path,
+                    ..dlg
+                });
+                cx.notify();
+                return;
+            }
+        };
+        // 当前空间要重载（分组已经从磁盘上搬走了）
+        self.settings.register_space(path.clone(), &name);
+        settings::save(&self.settings).ok();
+        self.switch_workspace(path, cx);
+        self.toast(
+            format!(
+                "{}{}（{} {} · {} {})",
+                self.t("space.converted"),
+                name,
+                reqs,
+                self.t("space.count_requests"),
+                subs,
+                self.t("space.count_groups"),
+            ),
+            cx,
+        );
+    }
+
     pub fn open_group_menu(
         &mut self,
         group_id: String,
@@ -2130,6 +2286,10 @@ impl AppModel {
                 (
                     format!("new-group:{}:{}", col_id, group_id),
                     self.t("action.new_group").to_string(),
+                ),
+                (
+                    format!("convert-space:{}", group_id),
+                    self.t("action.convert_to_space").to_string(),
                 ),
                 (
                     format!("collapse-others-group:{}", group_id),
@@ -2273,6 +2433,11 @@ impl AppModel {
             self.add_workspace(cx);
             return;
         }
+        if id == "ws-switch" {
+            self.popup.close();
+            self.open_space_palette(cx);
+            return;
+        }
         if let Some(rest) = id.strip_prefix("ws-forget:") {
             self.forget_workspace(PathBuf::from(rest), cx);
             return;
@@ -2366,6 +2531,10 @@ impl AppModel {
             } else {
                 self.create_request(rest, cx);
             }
+            return;
+        }
+        if let Some(gid) = id.strip_prefix("convert-space:") {
+            self.open_convert_space_dialog(gid.to_string(), cx);
             return;
         }
         if let Some(rest) = id.strip_prefix("rename-group:") {
@@ -2751,6 +2920,7 @@ impl Render for AppModel {
             root = root.child(self.vars_panel_render(cx));
         }
         if self.import_dialog.is_some() {
+            root = root.child(self.convert_space_dialog_render(cx));
             root = root.child(self.import_dialog_render(cx));
         }
         if self.move_dialog.is_some() {
@@ -2773,6 +2943,9 @@ impl Render for AppModel {
         }
         if self.quick.is_some() {
             root = root.child(self.quick_render(window, cx));
+        }
+        if self.space_palette.is_some() {
+            root = root.child(self.space_palette_render(window, cx));
         }
         if self.url_dialog {
             root = root.child(self.url_dialog_render(window, cx));
@@ -2840,6 +3013,7 @@ actions!(
         ToggleLocale,
         Reload,
         QuickSwitch,
+        SpaceSwitch,
         QuickClose,
         QuickUp,
         QuickDown,

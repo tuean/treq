@@ -301,6 +301,71 @@ pub fn default_workspace() -> PathBuf {
     data_dir().join("workspace")
 }
 
+/// 所有「空间」的父目录：`~/Library/Application Support/com.treq.app/spaces/`。
+///
+/// 每个空间是它下面一个普通目录（`<slug>/`，里面就是 `collections/`、`environments/`），
+/// 与 settings / cookies / history 同处 app 数据目录 —— 不碰 macOS 受保护目录。
+pub fn spaces_root() -> PathBuf {
+    data_dir().join("spaces")
+}
+
+/// 由空间名算出目录名（单层、安全、可读）。
+///
+/// 规则：去首尾空白 → 空白与路径分隔符转 `-` → 丢掉 `:`/`*`/`?` 等文件系统敏感字符 →
+/// 全是符号时回落到 `space`。**不含路径分隔符**，所以拼出来的目录一定在 spaces_root 直下。
+pub fn space_dir_name(name: &str) -> String {
+    let mut out = String::new();
+    let mut last_dash = false;
+    for ch in name.trim().chars() {
+        let c = if ch.is_alphanumeric() || ch == '_' || ch == '-' || ch == '.' {
+            ch
+        } else if ch.is_whitespace() || ch == '/' || ch == '\\' {
+            '-'
+        } else {
+            continue; // 其余标点直接丢
+        };
+        if c == '-' {
+            if last_dash || out.is_empty() {
+                continue;
+            }
+            last_dash = true;
+        } else {
+            last_dash = false;
+        }
+        out.push(c);
+    }
+    let out = out.trim_matches('-').to_string();
+    // 纯点号（`.` / `..` / `...`）要么是目录语义里的特殊名字（上级目录），
+    // 要么会变成隐藏目录，统一兜底成 `space`
+    if out.is_empty() || out.chars().all(|c| c == '.') {
+        "space".into()
+    } else {
+        out
+    }
+}
+
+/// 空间落点：`spaces/<slug>`；重名时依次试 `<slug>-2`、`<slug>-3`…（最多 1000 次）。
+pub fn space_path_for(name: &str) -> PathBuf {
+    let base = space_dir_name(name);
+    let root = spaces_root();
+    let first = root.join(&base);
+    if !first.exists() {
+        return first;
+    }
+    for i in 2..1000 {
+        let p = root.join(format!("{base}-{i}"));
+        if !p.exists() {
+            return p;
+        }
+    }
+    // 极端情况：全被占了也要给个能用的（带时间戳）
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    root.join(format!("{base}-{stamp}"))
+}
+
 fn path() -> PathBuf {
     data_dir().join("settings.toml")
 }
@@ -328,6 +393,17 @@ impl Settings {
             self.workspaces.push(WorkspaceRef::from_path(cur));
         } else if let Some(w) = self.workspaces.iter_mut().find(|w| w.path == cur) {
             w.name = WorkspaceRef::from_path(&cur).name;
+        }
+    }
+
+    /// 登记一个空间（已存在则只更新名字），不切换当前空间。
+    pub fn register_space(&mut self, path: PathBuf, name: &str) {
+        match self.workspaces.iter_mut().find(|w| w.path == path) {
+            Some(w) => w.name = name.to_string(),
+            None => self.workspaces.push(WorkspaceRef {
+                name: name.to_string(),
+                path,
+            }),
         }
     }
 
@@ -524,5 +600,39 @@ mod tests {
         assert_eq!(parsed.tree_width, None);
         assert_eq!(parsed.panel_width, None);
         assert_eq!(parsed.codegen_lang, None);
+    }
+}
+
+#[cfg(test)]
+mod space_tests {
+    use super::{space_dir_name, space_path_for};
+
+    #[test]
+    fn dir_name_is_single_level_and_readable() {
+        assert_eq!(space_dir_name("treq"), "treq");
+        assert_eq!(space_dir_name("  业务产品 A  "), "业务产品-A");
+        assert_eq!(space_dir_name("a/b/c"), "a-b-c");          // 不能带路径分隔符
+        assert_eq!(space_dir_name("a:b*c?d"), "abcd");          // 敏感字符丢掉
+        assert_eq!(space_dir_name("--x--"), "x");
+        assert_eq!(space_dir_name("///"), "space");             // 全是符号 → 兜底
+        assert_eq!(space_dir_name(""), "space");
+        // 纯点号是上级目录语义，必须兜底（单测抓到过这个 bug）
+        assert_eq!(space_dir_name("."), "space");
+        assert_eq!(space_dir_name(".."), "space");
+        assert_eq!(space_dir_name("..."), "space");
+    }
+
+    #[test]
+    fn dir_name_never_escapes_the_spaces_root() {
+        for name in ["../evil", "..", "/etc/passwd", "a/../..", r"\\server\share"] {
+            let d = space_dir_name(name);
+            assert!(!d.contains('/'), "{name} → {d} 不应含 /");
+            assert!(!d.contains('\\'), "{name} → {d} 不应含反斜杠");
+            // 真正要防的是「正好是 . 或 ..」以及多层路径；`..-evil` 这种单层名字是安全的
+            assert!(d != "." && d != "..", "{name} → {d} 不能是 . 或 ..");
+            assert_eq!(std::path::Path::new(&d).components().count(), 1, "{name} → {d} 必须只有一层");
+            let p = space_path_for(name);
+            assert_eq!(p.parent(), Some(super::spaces_root().as_path()));
+        }
     }
 }
